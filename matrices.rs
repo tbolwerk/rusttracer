@@ -43,6 +43,31 @@ fn determinant(a: &Matrix<2, 2>) -> f32 {
     a.get(0, 0) * a.get(1, 1) - a.get(0, 1) * a.get(1, 0)
 }
 
+fn submatrix<const ROWS: usize, const COLS: usize>(
+    a: &Matrix<ROWS, COLS>,
+    row: usize,
+    col: usize,
+) -> Matrix<{ ROWS - 1 }, { COLS - 1 }> {
+    let mut result: Matrix<{ ROWS - 1 }, { COLS - 1 }> = Matrix::init(0.0);
+    let mut i = 0;
+    let mut j = 0;
+    for y in 0..ROWS {
+        if y == row {
+            continue;
+        }
+        j = 0;
+        for x in 0..COLS {
+            if x == col {
+                continue;
+            }
+            result.set(i, j, a.get(y, x));
+            j += 1;
+        }
+        i += 1;
+    }
+    result
+}
+
 impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
     fn eq(&self, other: &Self) -> bool {
         for row in 0..ROWS {
@@ -226,4 +251,22 @@ fn transpose_the_identity_matrix() {
 fn calculating_the_determinant_of_a_2x2_matrix() {
     let a: Matrix<2, 2> = Matrix::new([[1.0, 5.0], [-3.0, 2.0]]);
     assert_eq!(determinant(&a), 17.0);
+}
+#[test]
+fn a_submatrix_of_a_3x3_matrix_is_a_2x2_matrix() {
+    let a: Matrix<3, 3> = Matrix::new([[1.0, 5.0, 0.0], [-3.0, 2.0, 7.0], [0.0, 6.0, -3.0]]);
+    assert_eq!(submatrix(&a, 0, 2), Matrix::new([[-3.0, 2.0], [0.0, 6.0],]));
+}
+#[test]
+fn a_submatrix_of_a_4x4_matrix_is_a_3x3_matrix() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [-6.0, 1.0, 1.0, 6.0],
+        [-8.0, 5.0, 8.0, 6.0],
+        [-1.0, 0.0, 8.0, 2.0],
+        [-7.0, 1.0, -1.0, 1.0],
+    ]);
+    assert_eq!(
+        submatrix(&a, 2, 1),
+        Matrix::new([[-6.0, 1.0, 6.0], [-8.0, 8.0, 6.0], [-7.0, -1.0, 1.0]])
+    );
 }
