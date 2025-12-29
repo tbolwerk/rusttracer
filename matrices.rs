@@ -68,6 +68,10 @@ fn submatrix<const ROWS: usize, const COLS: usize>(
     result
 }
 
+fn minor(a: &Matrix<3, 3>, row: usize, col: usize) -> f32 {
+    determinant(&submatrix(a, row, col))
+}
+
 impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
     fn eq(&self, other: &Self) -> bool {
         for row in 0..ROWS {
@@ -269,4 +273,11 @@ fn a_submatrix_of_a_4x4_matrix_is_a_3x3_matrix() {
         submatrix(&a, 2, 1),
         Matrix::new([[-6.0, 1.0, 6.0], [-8.0, 8.0, 6.0], [-7.0, -1.0, 1.0]])
     );
+}
+#[test]
+fn calculating_a_minor_of_a_3x3_matrix() {
+    let a: Matrix<3, 3> = Matrix::new([[3.0, 5.0, 0.0], [2.0, -1.0, -7.0], [6.0, -1.0, 5.0]]);
+    let b = submatrix(&a, 1, 0);
+    assert_eq!(determinant(&b), 25.0);
+    assert_eq!(minor(&a, 1, 0), 25.0);
 }
