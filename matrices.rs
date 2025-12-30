@@ -8,23 +8,27 @@ pub struct Matrix<const ROWS: usize, const COLS: usize> {
 }
 
 impl<const ROWS: usize, const COLS: usize> Matrix<ROWS, COLS> {
-    pub fn new(data: [[f32; COLS]; ROWS]) -> Self {
+    pub const fn new(data: [[f32; COLS]; ROWS]) -> Self {
         Self { data }
     }
-    fn init(value: f32) -> Self {
+    pub const fn init(value: f32) -> Self {
         Self::new([[value; COLS]; ROWS])
     }
-    pub fn identity() -> Self {
+    pub const fn identity() -> Self {
         let mut result = Self::init(0.0);
-        for row in 0..ROWS {
-            result.set(row, row, 1.0);
+        let mut row = 0;
+        let mut col = 0;
+        while row < ROWS && col < COLS {
+            result.set(row, col, 1.0);
+            row += 1;
+            col += 1;
         }
         result
     }
-    pub fn get(&self, row: usize, col: usize) -> f32 {
+    pub const fn get(&self, row: usize, col: usize) -> f32 {
         self.data[row][col]
     }
-    pub fn set(&mut self, row: usize, col: usize, value: f32) -> () {
+    pub const fn set(&mut self, row: usize, col: usize, value: f32) -> () {
         self.data[row][col] = value;
     }
 }
