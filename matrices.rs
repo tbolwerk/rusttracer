@@ -115,13 +115,15 @@ where
     determinant(a) != 0.0
 }
 
-pub fn inverse<const N: usize>(m: &Matrix<N, N>) -> Matrix<N, N>
+pub fn inverse<const N: usize>(m: &Matrix<N, N>) -> Option<Matrix<N, N>>
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
     Matrix<{ N }, { N }>: Determinant,
 {
-    assert!(is_invertible(m) == true);
+    if !is_invertible(m) {
+        return None;
+    }
 
     let mut m2: Matrix<N, N> = Matrix::init(0.0);
     for row in 0..N {
@@ -130,7 +132,7 @@ where
             m2.set(col, row, c / determinant(m));
         }
     }
-    m2
+    Some(m2)
 }
 
 pub trait Determinant {
@@ -419,6 +421,7 @@ fn testing_a_noninvertible_matrix_for_invertibility() {
     ]);
     assert_eq!(determinant(&a), 0.0);
     assert_eq!(is_invertible(&a), false);
+    assert_eq!(inverse(&a), None);
 }
 #[test]
 fn calculating_the_inverse_of_a_matrix() {
@@ -428,7 +431,8 @@ fn calculating_the_inverse_of_a_matrix() {
         [7.0, 7.0, -6.0, -7.0],
         [1.0, -3.0, 7.0, 4.0],
     ]);
-    let b: Matrix<4, 4> = inverse(&a);
+    assert_ne!(inverse(&a), None);
+    let b: Matrix<4, 4> = inverse(&a).unwrap();
     assert_eq!(determinant(&a), 532.0);
     assert_eq!(cofactor(&a, 2, 3), -160.0);
     assert_eq!(b.get(3, 2), -160.0 / 532.0);
@@ -454,12 +458,12 @@ fn calculating_the_inverse_of_another_matrix() {
     ]);
     assert_eq!(
         inverse(&a),
-        Matrix::new([
+        Some(Matrix::new([
             [-0.15385, -0.15385, -0.28205, -0.53846],
             [-0.07692, 0.12308, 0.02564, 0.03077],
             [0.35897, 0.35897, 0.43590, 0.92308],
             [-0.69231, -0.69231, -0.76923, -1.92308]
-        ])
+        ]))
     )
 }
 #[test]
@@ -472,12 +476,12 @@ fn calculating_the_inverse_of_third_matrix() {
     ]);
     assert_eq!(
         inverse(&a),
-        Matrix::new([
+        Some(Matrix::new([
             [-0.04074, -0.07778, 0.14444, -0.22222],
             [-0.07778, 0.03333, 0.36667, -0.33333],
             [-0.02901, -0.14630, -0.10926, 0.12963],
             [0.17778, 0.06667, -0.26667, 0.33333]
-        ])
+        ]))
     )
 }
 #[test]
@@ -495,5 +499,6 @@ fn multiplying_a_product_by_its_inverse() {
         [6.0, -2.0, 0.0, 5.0],
     ]);
     let c: Matrix<4, 4> = a * b;
-    assert_eq!(c * inverse(&b), a);
+    assert_ne!(inverse(&b), None);
+    assert_eq!(c * inverse(&b).unwrap(), a);
 }
