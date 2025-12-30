@@ -39,24 +39,19 @@ fn transpose<const ROWS: usize, const COLS: usize>(a: &Matrix<ROWS, COLS>) -> Ma
     result
 }
 
-fn determinant(a: &Matrix<2, 2>) -> f32 {
-    a.get(0, 0) * a.get(1, 1) - a.get(0, 1) * a.get(1, 0)
-}
-
-fn submatrix<const ROWS: usize, const COLS: usize>(
-    a: &Matrix<ROWS, COLS>,
+fn submatrix<const N: usize>(
+    a: &Matrix<N, N>,
     row: usize,
     col: usize,
-) -> Matrix<{ ROWS - 1 }, { COLS - 1 }> {
-    let mut result: Matrix<{ ROWS - 1 }, { COLS - 1 }> = Matrix::init(0.0);
+) -> Matrix<{ N - 1 }, { N - 1 }> {
+    let mut result: Matrix<{ N - 1 }, { N - 1 }> = Matrix::init(0.0);
     let mut i = 0;
-    let mut j = 0;
-    for y in 0..ROWS {
+    for y in 0..N {
         if y == row {
             continue;
         }
-        j = 0;
-        for x in 0..COLS {
+        let mut j = 0;
+        for x in 0..N {
             if x == col {
                 continue;
             }
@@ -68,8 +63,56 @@ fn submatrix<const ROWS: usize, const COLS: usize>(
     result
 }
 
-fn minor(a: &Matrix<3, 3>, row: usize, col: usize) -> f32 {
-    determinant(&submatrix(a, row, col))
+fn minor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+{
+    submatrix(a, row, col).determinant()
+}
+
+fn cofactor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+{
+    if (row + col) % 2 == 0 {
+        minor(a, row, col)
+    } else {
+        -minor(a, row, col)
+    }
+}
+
+fn determinant_of_n<const N: usize>(a: &Matrix<N, N>) -> f32
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+{
+    let mut result = 0.0;
+    for n in 0..N {
+        result += cofactor(a, 0, n) * a.get(0, n)
+    }
+    result
+}
+
+trait Determinant {
+    fn determinant(&self) -> f32;
+}
+
+impl Determinant for Matrix<2, 2> {
+    fn determinant(&self) -> f32 {
+        self.get(0, 0) * self.get(1, 1) - self.get(0, 1) * self.get(1, 0)
+    }
+}
+impl Determinant for Matrix<3, 3> {
+    fn determinant(&self) -> f32 {
+        determinant_of_n(self)
+    }
+}
+impl Determinant for Matrix<4, 4> {
+    fn determinant(&self) -> f32 {
+        determinant_of_n(self)
+    }
 }
 
 impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
@@ -254,7 +297,7 @@ fn transpose_the_identity_matrix() {
 #[test]
 fn calculating_the_determinant_of_a_2x2_matrix() {
     let a: Matrix<2, 2> = Matrix::new([[1.0, 5.0], [-3.0, 2.0]]);
-    assert_eq!(determinant(&a), 17.0);
+    assert_eq!(a.determinant(), 17.0);
 }
 #[test]
 fn a_submatrix_of_a_3x3_matrix_is_a_2x2_matrix() {
@@ -278,6 +321,36 @@ fn a_submatrix_of_a_4x4_matrix_is_a_3x3_matrix() {
 fn calculating_a_minor_of_a_3x3_matrix() {
     let a: Matrix<3, 3> = Matrix::new([[3.0, 5.0, 0.0], [2.0, -1.0, -7.0], [6.0, -1.0, 5.0]]);
     let b = submatrix(&a, 1, 0);
-    assert_eq!(determinant(&b), 25.0);
+    assert_eq!(b.determinant(), 25.0);
     assert_eq!(minor(&a, 1, 0), 25.0);
+}
+#[test]
+fn calculating_a_cofactor_of_a_3x3_matrix() {
+    let a: Matrix<3, 3> = Matrix::new([[3.0, 5.0, 0.0], [2.0, -1.0, -7.0], [6.0, -1.0, 5.0]]);
+    assert_eq!(minor(&a, 0, 0), -12.0);
+    assert_eq!(cofactor(&a, 0, 0), -12.0);
+    assert_eq!(minor(&a, 1, 0), 25.0);
+    assert_eq!(cofactor(&a, 1, 0), -25.0);
+}
+#[test]
+fn calculating_the_determinant_of_a_3x3_matrix() {
+    let a: Matrix<3, 3> = Matrix::new([[1.0, 2.0, 6.0], [-5.0, 8.0, -4.0], [2.0, 6.0, 4.0]]);
+    assert_eq!(cofactor(&a, 0, 0), 56.0);
+    assert_eq!(cofactor(&a, 0, 1), 12.0);
+    assert_eq!(cofactor(&a, 0, 2), -46.0);
+    assert_eq!(a.determinant(), -196.0);
+}
+#[test]
+fn calculating_the_determinant_of_a_4x4_matrix() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [-2.0, -8.0, 3.0, 5.0],
+        [-3.0, 1.0, 7.0, 3.0],
+        [1.0, 2.0, -9.0, 6.0],
+        [-6.0, 7.0, 7.0, -9.0],
+    ]);
+    assert_eq!(cofactor(&a, 0, 0), 690.0);
+    assert_eq!(cofactor(&a, 0, 1), 447.0);
+    assert_eq!(cofactor(&a, 0, 2), 210.0);
+    assert_eq!(cofactor(&a, 0, 3), 51.0);
+    assert_eq!(a.determinant(), -4071.0);
 }
