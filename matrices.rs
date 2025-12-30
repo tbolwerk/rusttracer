@@ -3,33 +3,35 @@ use std::ops::Mul;
 use crate::tuples::*;
 
 #[derive(Debug, Clone, Copy)]
-struct Matrix<const ROWS: usize, const COLS: usize> {
+pub struct Matrix<const ROWS: usize, const COLS: usize> {
     data: [[f32; COLS]; ROWS],
 }
 
 impl<const ROWS: usize, const COLS: usize> Matrix<ROWS, COLS> {
-    fn new(data: [[f32; COLS]; ROWS]) -> Self {
+    pub fn new(data: [[f32; COLS]; ROWS]) -> Self {
         Self { data }
     }
     fn init(value: f32) -> Self {
         Self::new([[value; COLS]; ROWS])
     }
-    fn identity() -> Self {
+    pub fn identity() -> Self {
         let mut result = Self::init(0.0);
         for row in 0..ROWS {
             result.set(row, row, 1.0);
         }
         result
     }
-    fn get(&self, row: usize, col: usize) -> f32 {
+    pub fn get(&self, row: usize, col: usize) -> f32 {
         self.data[row][col]
     }
-    fn set(&mut self, row: usize, col: usize, value: f32) -> () {
+    pub fn set(&mut self, row: usize, col: usize, value: f32) -> () {
         self.data[row][col] = value;
     }
 }
 
-fn transpose<const ROWS: usize, const COLS: usize>(a: &Matrix<ROWS, COLS>) -> Matrix<COLS, ROWS> {
+pub fn transpose<const ROWS: usize, const COLS: usize>(
+    a: &Matrix<ROWS, COLS>,
+) -> Matrix<COLS, ROWS> {
     let mut result = Matrix::init(0.0);
     for row in 0..ROWS {
         for col in 0..COLS {
@@ -39,7 +41,7 @@ fn transpose<const ROWS: usize, const COLS: usize>(a: &Matrix<ROWS, COLS>) -> Ma
     result
 }
 
-fn submatrix<const N: usize>(
+pub fn submatrix<const N: usize>(
     a: &Matrix<N, N>,
     row: usize,
     col: usize,
@@ -63,7 +65,7 @@ fn submatrix<const N: usize>(
     result
 }
 
-fn minor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+pub fn minor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -71,7 +73,7 @@ where
     submatrix(a, row, col).determinant()
 }
 
-fn cofactor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+pub fn cofactor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -95,8 +97,23 @@ where
     result
 }
 
+pub fn determinant<const N: usize>(a: &Matrix<N, N>) -> f32
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+    Matrix<{ N }, { N }>: Determinant,
+{
+    a.determinant()
+}
+
 trait Determinant {
     fn determinant(&self) -> f32;
+}
+
+impl Determinant for Matrix<1, 1> {
+    fn determinant(&self) -> f32 {
+        self.get(0, 0)
+    }
 }
 
 impl Determinant for Matrix<2, 2> {
@@ -297,7 +314,7 @@ fn transpose_the_identity_matrix() {
 #[test]
 fn calculating_the_determinant_of_a_2x2_matrix() {
     let a: Matrix<2, 2> = Matrix::new([[1.0, 5.0], [-3.0, 2.0]]);
-    assert_eq!(a.determinant(), 17.0);
+    assert_eq!(determinant(&a), 17.0);
 }
 #[test]
 fn a_submatrix_of_a_3x3_matrix_is_a_2x2_matrix() {
@@ -321,7 +338,7 @@ fn a_submatrix_of_a_4x4_matrix_is_a_3x3_matrix() {
 fn calculating_a_minor_of_a_3x3_matrix() {
     let a: Matrix<3, 3> = Matrix::new([[3.0, 5.0, 0.0], [2.0, -1.0, -7.0], [6.0, -1.0, 5.0]]);
     let b = submatrix(&a, 1, 0);
-    assert_eq!(b.determinant(), 25.0);
+    assert_eq!(determinant(&b), 25.0);
     assert_eq!(minor(&a, 1, 0), 25.0);
 }
 #[test]
@@ -338,7 +355,7 @@ fn calculating_the_determinant_of_a_3x3_matrix() {
     assert_eq!(cofactor(&a, 0, 0), 56.0);
     assert_eq!(cofactor(&a, 0, 1), 12.0);
     assert_eq!(cofactor(&a, 0, 2), -46.0);
-    assert_eq!(a.determinant(), -196.0);
+    assert_eq!(determinant(&a), -196.0);
 }
 #[test]
 fn calculating_the_determinant_of_a_4x4_matrix() {
@@ -352,5 +369,5 @@ fn calculating_the_determinant_of_a_4x4_matrix() {
     assert_eq!(cofactor(&a, 0, 1), 447.0);
     assert_eq!(cofactor(&a, 0, 2), 210.0);
     assert_eq!(cofactor(&a, 0, 3), 51.0);
-    assert_eq!(a.determinant(), -4071.0);
+    assert_eq!(determinant(&a), -4071.0);
 }
