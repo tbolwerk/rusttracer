@@ -3,6 +3,8 @@
 mod canvas;
 use canvas::*;
 
+mod transformations;
+use transformations::*;
 mod matrices;
 use matrices::*;
 mod tuples;
