@@ -106,7 +106,36 @@ where
     a.determinant()
 }
 
-trait Determinant {
+pub fn is_invertible<const N: usize>(a: &Matrix<N, N>) -> bool
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+    Matrix<{ N }, { N }>: Determinant,
+{
+    determinant(a) != 0.0
+}
+
+pub fn inverse<const N: usize>(m: &Matrix<N, N>) -> Matrix<N, N>
+where
+    [(); N - 1]:,
+    Matrix<{ N - 1 }, { N - 1 }>: Determinant,
+    Matrix<{ N }, { N }>: Determinant,
+{
+    if !is_invertible(m) {
+        panic!("Cannot invert {:#?}", m);
+    }
+
+    let mut m2: Matrix<N, N> = Matrix::init(0.0);
+    for row in 0..N {
+        for col in 0..N {
+            let c = cofactor(m, row, col);
+            m2.set(col, row, c / determinant(m));
+        }
+    }
+    m2
+}
+
+pub trait Determinant {
     fn determinant(&self) -> f32;
 }
 
@@ -136,7 +165,7 @@ impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
     fn eq(&self, other: &Self) -> bool {
         for row in 0..ROWS {
             for col in 0..COLS {
-                if self.data[row][col] != other.data[row][col] {
+                if (self.get(row, col) - other.get(row, col)).abs() > 0.001 {
                     return false;
                 }
             }
@@ -370,4 +399,50 @@ fn calculating_the_determinant_of_a_4x4_matrix() {
     assert_eq!(cofactor(&a, 0, 2), 210.0);
     assert_eq!(cofactor(&a, 0, 3), 51.0);
     assert_eq!(determinant(&a), -4071.0);
+}
+#[test]
+fn testing_an_invertible_matrix_for_invertability() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [6.0, 4.0, 4.0, 4.0],
+        [5.0, 5.0, 7.0, 6.0],
+        [4.0, -9.0, 3.0, -7.0],
+        [9.0, 1.0, 7.0, -6.0],
+    ]);
+    assert_eq!(determinant(&a), -2120.0);
+    assert_eq!(is_invertible(&a), true);
+}
+#[test]
+fn testing_a_noninvertible_matrix_for_invertibility() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [-4.0, 2.0, -2.0, -3.0],
+        [9.0, 6.0, 2.0, 6.0],
+        [0.0, -5.0, 1.0, -5.0],
+        [0.0, 0.0, 0.0, 0.0],
+    ]);
+    assert_eq!(determinant(&a), 0.0);
+    assert_eq!(is_invertible(&a), false);
+}
+#[test]
+fn calculating_the_inverse_of_a_matrix() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [-5.0, 2.0, 6.0, -8.0],
+        [1.0, -5.0, 1.0, 8.0],
+        [7.0, 7.0, -6.0, -7.0],
+        [1.0, -3.0, 7.0, 4.0],
+    ]);
+    let b: Matrix<4, 4> = inverse(&a);
+    assert_eq!(determinant(&a), 532.0);
+    assert_eq!(cofactor(&a, 2, 3), -160.0);
+    assert_eq!(b.get(3, 2), -160.0 / 532.0);
+    assert_eq!(cofactor(&a, 3, 2), 105.0);
+    assert_eq!(b.get(2, 3), 105.0 / 532.0);
+    assert_eq!(
+        b,
+        Matrix::new([
+            [0.21805, 0.45113, 0.24060, -0.04511],
+            [-0.80827, -1.45677, -0.44361, 0.52068],
+            [-0.07895, -0.22368, -0.05253, 0.19737],
+            [-0.52256, -0.81391, -0.30075, 0.30639]
+        ])
+    )
 }
