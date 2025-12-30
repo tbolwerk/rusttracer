@@ -121,9 +121,7 @@ where
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
     Matrix<{ N }, { N }>: Determinant,
 {
-    if !is_invertible(m) {
-        panic!("Cannot invert {:#?}", m);
-    }
+    assert!(is_invertible(m) == true);
 
     let mut m2: Matrix<N, N> = Matrix::init(0.0);
     for row in 0..N {
@@ -445,4 +443,57 @@ fn calculating_the_inverse_of_a_matrix() {
             [-0.52256, -0.81391, -0.30075, 0.30639]
         ])
     )
+}
+#[test]
+fn calculating_the_inverse_of_another_matrix() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [8.0, -5.0, 9.0, 2.0],
+        [7.0, 5.0, 6.0, 1.0],
+        [-6.0, 0.0, 9.0, 6.0],
+        [-3.0, 0.0, -9.0, -4.0],
+    ]);
+    assert_eq!(
+        inverse(&a),
+        Matrix::new([
+            [-0.15385, -0.15385, -0.28205, -0.53846],
+            [-0.07692, 0.12308, 0.02564, 0.03077],
+            [0.35897, 0.35897, 0.43590, 0.92308],
+            [-0.69231, -0.69231, -0.76923, -1.92308]
+        ])
+    )
+}
+#[test]
+fn calculating_the_inverse_of_third_matrix() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [9.0, 3.0, 0.0, 9.0],
+        [-5.0, -2.0, -6.0, -3.0],
+        [-4.0, 9.0, 6.0, 4.0],
+        [-7.0, 6.0, 6.0, 2.0],
+    ]);
+    assert_eq!(
+        inverse(&a),
+        Matrix::new([
+            [-0.04074, -0.07778, 0.14444, -0.22222],
+            [-0.07778, 0.03333, 0.36667, -0.33333],
+            [-0.02901, -0.14630, -0.10926, 0.12963],
+            [0.17778, 0.06667, -0.26667, 0.33333]
+        ])
+    )
+}
+#[test]
+fn multiplying_a_product_by_its_inverse() {
+    let a: Matrix<4, 4> = Matrix::new([
+        [3.0, -9.0, 7.0, 3.0],
+        [3.0, -8.0, 2.0, -9.0],
+        [-4.0, 4.0, 4.0, 1.0],
+        [-6.0, 5.0, -1.0, 1.0],
+    ]);
+    let b: Matrix<4, 4> = Matrix::new([
+        [8.0, 2.0, 2.0, 2.0],
+        [3.0, -1.0, 7.0, 0.0],
+        [7.0, 0.0, 5.0, 4.0],
+        [6.0, -2.0, 0.0, 5.0],
+    ]);
+    let c: Matrix<4, 4> = a * b;
+    assert_eq!(c * inverse(&b), a);
 }
