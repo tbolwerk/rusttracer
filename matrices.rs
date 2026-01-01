@@ -169,7 +169,7 @@ impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
     fn eq(&self, other: &Self) -> bool {
         for row in 0..ROWS {
             for col in 0..COLS {
-                if (self.get(row, col) - other.get(row, col)).abs() > 0.001 {
+                if (self.get(row, col) - other.get(row, col)).abs() > EPSILON {
                     return false;
                 }
             }
