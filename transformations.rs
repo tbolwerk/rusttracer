@@ -104,3 +104,133 @@ fn a_scaling_matrix_applied_to_a_point() {
     let p = Tuple::point(-4.0, 6.0, 8.0);
     assert_eq!(TRANSFORM * p, Tuple::point(-8.0, 18.0, 32.0));
 }
+#[test]
+fn a_scaling_matrix_applied_to_a_vector() {
+    const TRANSFORM: Matrix<4, 4> = scaling(2.0, 3.0, 4.0);
+    let p = Tuple::vector(-4.0, 6.0, 8.0);
+    assert_eq!(TRANSFORM * p, Tuple::vector(-8.0, 18.0, 32.0));
+}
+#[test]
+fn multiplying_by_the_inverse_of_a_scaling_matrix() {
+    const TRANSFORM: Matrix<4, 4> = scaling(2.0, 3.0, 4.0);
+    let inv = inverse(&TRANSFORM).unwrap();
+    let v = Tuple::vector(-4.0, 6.0, 8.0);
+    assert_eq!(inv * v, Tuple::vector(-2.0, 2.0, 2.0));
+}
+#[test]
+fn reflection_is_scaling_by_a_negative_value() {
+    const TRANSFORM: Matrix<4, 4> = scaling(-1.0, 1.0, 1.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(-2.0, 3.0, 4.0));
+}
+#[test]
+fn rotating_a_point_around_the_x_axis() {
+    let p = Tuple::point(0.0, 1.0, 0.0);
+    const HALF_QUARTER: Matrix<4, 4> = rotation_x(PI / 4.0);
+    const FULL_QUARTER: Matrix<4, 4> = rotation_x(PI / 2.0);
+    assert_eq!(
+        HALF_QUARTER * p,
+        Tuple::point(0.0, (2.0_f32).sqrt() / 2.0, (2.0_f32).sqrt() / 2.0)
+    );
+    assert_eq!(FULL_QUARTER * p, Tuple::point(0.0, 0.0, 1.0));
+}
+#[test]
+fn the_inverse_of_an_x_rotation_rotates_in_the_opposite_direction() {
+    let p = Tuple::point(0.0, 1.0, 0.0);
+    const HALF_QUARTER: Matrix<4, 4> = rotation_x(PI / 4.0);
+    let inv = inverse(&HALF_QUARTER).unwrap();
+    assert_eq!(
+        inv * p,
+        Tuple::point(0.0, (2.0_f32).sqrt() / 2.0, -1.0 * (2.0_f32).sqrt() / 2.0)
+    )
+}
+#[test]
+fn rotating_a_point_around_the_y_axis() {
+    let p = Tuple::point(0.0, 0.0, 1.0);
+    const HALF_QUARTER: Matrix<4, 4> = rotation_y(PI / 4.0);
+    const FULL_QUARTER: Matrix<4, 4> = rotation_y(PI / 2.0);
+    assert_eq!(
+        HALF_QUARTER * p,
+        Tuple::point((2.0_f32).sqrt() / 2.0, 0.0, (2.0_f32).sqrt() / 2.0)
+    );
+    assert_eq!(FULL_QUARTER * p, Tuple::point(1.0, 0.0, 0.0));
+}
+#[test]
+fn rotating_a_point_around_the_z_axis() {
+    let p = Tuple::point(0.0, 1.0, 0.0);
+    const HALF_QUARTER: Matrix<4, 4> = rotation_z(PI / 4.0);
+    const FULL_QUARTER: Matrix<4, 4> = rotation_z(PI / 2.0);
+    assert_eq!(
+        HALF_QUARTER * p,
+        Tuple::point(-1.0 * (2.0_f32).sqrt() / 2.0, (2.0_f32).sqrt() / 2.0, 0.0)
+    );
+    assert_eq!(FULL_QUARTER * p, Tuple::point(-1.0, 0.0, 0.0));
+}
+#[test]
+fn a_shearing_transformation_moves_x_in_proportion_of_y() {
+    const TRANSFORM: Matrix<4, 4> = shearing(1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(5.0, 3.0, 4.0));
+}
+#[test]
+fn a_shearing_transformation_moves_x_in_proportion_of_z() {
+    const TRANSFORM: Matrix<4, 4> = shearing(0.0, 1.0, 0.0, 0.0, 0.0, 0.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(6.0, 3.0, 4.0));
+}
+#[test]
+fn a_shearing_transformation_moves_y_in_proportion_of_x() {
+    const TRANSFORM: Matrix<4, 4> = shearing(0.0, 0.0, 1.0, 0.0, 0.0, 0.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(2.0, 5.0, 4.0));
+}
+#[test]
+fn a_shearing_transformation_moves_y_in_proportion_of_z() {
+    const TRANSFORM: Matrix<4, 4> = shearing(0.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(2.0, 7.0, 4.0));
+}
+#[test]
+fn a_shearing_transformation_moves_z_in_proportion_of_x() {
+    const TRANSFORM: Matrix<4, 4> = shearing(0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(2.0, 3.0, 6.0));
+}
+#[test]
+fn a_shearing_transformation_moves_z_in_proportion_of_y() {
+    const TRANSFORM: Matrix<4, 4> = shearing(0.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+    let p = Tuple::point(2.0, 3.0, 4.0);
+    assert_eq!(TRANSFORM * p, Tuple::point(2.0, 3.0, 7.0));
+}
+#[test]
+fn indivual_transformations_are_applied_in_sequence() {
+    let p = Tuple::point(1.0, 0.0, 1.0);
+    const A: Matrix<4, 4> = rotation_x(PI / 2.0);
+    const B: Matrix<4, 4> = scaling(5.0, 5.0, 5.0);
+    const C: Matrix<4, 4> = translation(10.0, 5.0, 7.0);
+    let p2 = A * p;
+    assert_eq!(p2, Tuple::point(1.0, -1.0, 0.0));
+    let p3 = B * p2;
+    assert_eq!(p3, Tuple::point(5.0, -5.0, 0.0));
+    let p4 = C * p3;
+    assert_eq!(p4, Tuple::point(15.0, 0.0, 7.0));
+}
+#[test]
+fn chained_transformations_must_be_applied_in_normal_order() {
+    let p = Tuple::point(1.0, 0.0, 1.0);
+    const A: Matrix<4, 4> = rotation_x(PI / 2.0);
+    const B: Matrix<4, 4> = scaling(5.0, 5.0, 5.0);
+    const C: Matrix<4, 4> = translation(10.0, 5.0, 7.0);
+    const T: Matrix<4, 4> = A.then(B).then(C);
+    assert_eq!(T * p, Tuple::point(15.0, 0.0, 7.0));
+}
+
+#[test]
+fn fluent_api_transformations_must_be_applied_in_normal_order() {
+    let p = Tuple::point(1.0, 0.0, 1.0);
+    const T: Matrix<4, 4> = Matrix::identity()
+        .then(rotation_x(PI / 2.0))
+        .then(scaling(5.0, 5.0, 5.0))
+        .then(translation(10.0, 5.0, 7.0));
+    assert_eq!(T * p, Tuple::point(15.0, 0.0, 7.0));
+}
