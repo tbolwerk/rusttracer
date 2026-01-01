@@ -37,40 +37,40 @@ pub fn cross(a: &Tuple, b: &Tuple) -> Tuple {
 }
 
 impl Tuple {
-    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+    pub const fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { data: [x, y, z, w] }
     }
-    pub fn init(value: f32) -> Self {
+    pub const fn init(value: f32) -> Self {
         Self::new(value, value, value, value)
     }
-    pub fn point(x: f32, y: f32, z: f32) -> Self {
+    pub const fn point(x: f32, y: f32, z: f32) -> Self {
         Self::new(x, y, z, 1.0)
     }
-    pub fn vector(x: f32, y: f32, z: f32) -> Self {
+    pub const fn vector(x: f32, y: f32, z: f32) -> Self {
         Self::new(x, y, z, 0.0)
     }
-    pub fn get(&self, index: usize) -> f32 {
+    pub const fn get(&self, index: usize) -> f32 {
         self.data[index]
     }
-    pub fn set(&mut self, index: usize, value: f32) {
+    pub const fn set(&mut self, index: usize, value: f32) {
         self.data[index] = value;
     }
-    pub fn x(&self) -> f32 {
+    pub const fn x(&self) -> f32 {
         self.get(0)
     }
-    pub fn y(&self) -> f32 {
+    pub const fn y(&self) -> f32 {
         self.get(1)
     }
-    pub fn z(&self) -> f32 {
+    pub const fn z(&self) -> f32 {
         self.get(2)
     }
-    pub fn w(&self) -> f32 {
+    pub const fn w(&self) -> f32 {
         self.get(3)
     }
-    pub fn is_vector(&self) -> bool {
+    pub const fn is_vector(&self) -> bool {
         self.w() == 0.0
     }
-    pub fn is_point(&self) -> bool {
+    pub const fn is_point(&self) -> bool {
         self.w() == 1.0
     }
 }
