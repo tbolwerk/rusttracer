@@ -119,9 +119,8 @@ impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
             pixels: HeapMatrix::new(Color::black()),
         }
     }
-    pub fn set(&mut self, value: Color, row: usize, col: usize) -> &mut Self {
+    pub fn set(&mut self, value: Color, row: usize, col: usize) -> () {
         self.pixels.set(value, row, col);
-        self
     }
     pub fn write_ppm(
         &self,

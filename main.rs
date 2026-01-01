@@ -3,6 +3,12 @@
 mod canvas;
 use canvas::*;
 
+mod intersections;
+use intersections::*;
+mod spheres;
+use spheres::*;
+mod rays;
+use rays::*;
 mod transformations;
 use transformations::*;
 mod matrices;
@@ -11,6 +17,46 @@ mod tuples;
 use tuples::*;
 
 fn main() -> Result<(), ()> {
+    let _ = chapter1();
+    let _ = chapter4();
+    let _ = chapter5();
+    Ok(())
+}
+fn chapter5() {
+    let ray_origin = Tuple::point(0.0, 0.0, -5.0);
+    const WALL_Z: f32 = 10.0;
+    const WALL_SIZE: f32 = 7.0;
+    const CANVAS_PIXELS: usize = 100;
+    const PIXEL_SIZE: f32 = WALL_SIZE / CANVAS_PIXELS as f32;
+    const HALF: f32 = WALL_SIZE / 2.0;
+    let mut canvas: Canvas<CANVAS_PIXELS, CANVAS_PIXELS> = Canvas::new();
+    let color = Color::red();
+    let mut shape = Sphere::unit();
+    const TRANSFORM: Matrix<4, 4> = Matrix::identity()
+        .then(scaling(0.5, 1.0, 1.0))
+        .then(rotation_z(PI / 6.0))
+        .then(shearing(1.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+
+    shape.set_transform(&TRANSFORM);
+
+    for y in 0..CANVAS_PIXELS - 1 {
+        let world_y = HALF - PIXEL_SIZE * y as f32;
+        for x in 0..CANVAS_PIXELS - 1 {
+            let world_x = -HALF + PIXEL_SIZE * x as f32;
+            let position = Tuple::point(world_x, world_y, WALL_Z);
+
+            let r = Ray::new(ray_origin, normalize(&(position - ray_origin)));
+            let xs = shape.intersect(&r);
+
+            match hit(&xs) {
+                Some(_) => canvas.set(color, y, x),
+                None => (),
+            }
+        }
+    }
+    let _ = canvas.write_ppm("chapter5.ppm", PpmFormat::P3, 255);
+}
+fn chapter4() -> Result<(), ()> {
     const WIDTH: usize = 400;
     const HEIGHT: usize = 400;
 

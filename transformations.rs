@@ -1,7 +1,7 @@
 use crate::matrices::{inverse, Matrix};
 use crate::tuples::Tuple;
 
-const PI: f32 = 3.14159265;
+pub const PI: f32 = 3.14159265;
 const TWO_PI: f32 = 6.28318531;
 
 pub const fn radians(degree: f32) -> f32 {
