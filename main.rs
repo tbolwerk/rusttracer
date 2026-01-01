@@ -10,6 +10,43 @@ use matrices::*;
 mod tuples;
 use tuples::*;
 
+fn main() -> Result<(), ()> {
+    const WIDTH: usize = 400;
+    const HEIGHT: usize = 400;
+
+    let mut c: Canvas<WIDTH, HEIGHT> = Canvas::new();
+
+    // 12 o'clock position
+    const SCALE: Matrix<4, 4> = scaling(150.0, 150.0, 150.0);
+    const TRANSLATE: Matrix<4, 4> = translation(200.0, 200.0, 200.0);
+    const START: Tuple = Tuple::point(0.0, 0.0, 1.0);
+
+    const HOURS_COUNT: usize = 12;
+    const STEP_SIZE: f32 = 360.0 / HOURS_COUNT as f32;
+    const HOURS: [Matrix<4, 4>; HOURS_COUNT] = {
+        let mut hours: [Matrix<4, 4>; HOURS_COUNT] = [Matrix::identity(); HOURS_COUNT];
+        let mut i = 0;
+        while i < HOURS_COUNT {
+            let angle = radians((i as f32) * STEP_SIZE);
+            hours[i] = rotation_y(angle).then(SCALE).then(TRANSLATE);
+            i += 1;
+        }
+        hours
+    };
+
+    // Iterate over compile-time calculated transform matrix
+    for transform in HOURS.iter() {
+        let p = *transform * START;
+        let x = p.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
+        let z = p.z().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
+        println!("transform: {:?} tuple: {:?} x: {x}, z:{z}", p, transform);
+        c.set(Color::white(), x, z);
+    }
+
+    let _ = c.write_ppm("chapter4.ppm", PpmFormat::P3, 255);
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Projectile {
     position: Tuple,
@@ -40,7 +77,7 @@ fn tick(env: Environment, proj: Projectile) -> Projectile {
     Projectile::new(position, velocity)
 }
 
-fn main() -> std::io::Result<()> {
+fn chapter1() -> std::io::Result<()> {
     let start = Tuple::point(0.0, 1.0, 0.0);
     let velocity = normalize(&Tuple::vector(1.0, 1.8, 0.0)) * 11.25;
     let mut p = Projectile::new(start, velocity);
