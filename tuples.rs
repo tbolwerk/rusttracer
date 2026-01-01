@@ -4,7 +4,7 @@ use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
 
-const EPSILON: f32 = 0.00001;
+pub const EPSILON: f32 = 0.001;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Tuple {
