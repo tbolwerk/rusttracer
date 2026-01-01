@@ -31,6 +31,32 @@ impl<const ROWS: usize, const COLS: usize> Matrix<ROWS, COLS> {
     pub const fn set(&mut self, row: usize, col: usize, value: f32) -> () {
         self.data[row][col] = value;
     }
+    pub const fn then(&self, b: Matrix<ROWS, COLS>) -> Matrix<ROWS, COLS> {
+        mul(&b, self)
+    }
+}
+
+pub const fn mul<const ROWS: usize, const COLS: usize>(
+    a: &Matrix<ROWS, COLS>,
+    b: &Matrix<ROWS, COLS>,
+) -> Matrix<ROWS, COLS> {
+    let mut m = Matrix::init(0.0);
+    let mut i = 0;
+    while i < ROWS {
+        let mut j = 0;
+        while j < COLS {
+            let mut sum = 0.0;
+            let mut k = 0;
+            while k < COLS {
+                sum += a.get(i, k) * b.get(k, j);
+                k += 1;
+            }
+            m.set(i, j, sum);
+            j += 1;
+        }
+        i += 1;
+    }
+    m
 }
 
 pub fn transpose<const ROWS: usize, const COLS: usize>(
@@ -181,17 +207,7 @@ impl<const ROWS: usize, const COLS: usize> PartialEq for Matrix<ROWS, COLS> {
 impl<const ROWS: usize, const COLS: usize> Mul for Matrix<ROWS, COLS> {
     type Output = Matrix<ROWS, COLS>;
     fn mul(self, other: Self) -> Self::Output {
-        let mut result: Matrix<ROWS, COLS> = Matrix::init(0.0);
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                for k in 0..COLS {
-                    let a = self.data[row][k];
-                    let b = other.data[k][col];
-                    result.data[row][col] += a * b;
-                }
-            }
-        }
-        result
+        mul(&self, &other)
     }
 }
 
