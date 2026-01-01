@@ -1,6 +1,12 @@
 use crate::matrices::{inverse, Matrix};
 use crate::tuples::Tuple;
 
+const PI: f32 = 3.14;
+
+pub const fn radians(degree: f32) -> f32 {
+    degree * PI / 180.0
+}
+
 pub const fn translation(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(0, 3, x);
