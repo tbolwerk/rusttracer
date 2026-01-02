@@ -1,10 +1,9 @@
+use crate::colors::*;
+use crate::tuples::external_tuples::TupleKind;
 use std::fmt::Write as StringWrite;
 use std::fs::File;
 use std::io::Write;
-
-pub trait PrettyPrint {
-    fn pp(&self) -> String;
-}
+use std::ops::Mul;
 
 pub enum PpmFormat {
     P3,
@@ -73,63 +72,41 @@ impl<T: std::marker::Copy + PrettyPrint, const ROWS: usize, const COLS: usize>
 pub trait Serialize {
     fn to_bytes(&self) -> Vec<u8>;
 }
-
-#[derive(Clone, Copy)]
-pub struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-impl Color {
-    pub fn red() -> Self {
-        Self { r: 255, g: 0, b: 0 }
-    }
-    pub fn green() -> Self {
-        Self { r: 0, g: 255, b: 0 }
-    }
-    pub fn blue() -> Self {
-        Self { r: 0, g: 0, b: 255 }
-    }
-    pub fn black() -> Self {
-        Self { r: 0, g: 0, b: 0 }
-    }
-    pub fn white() -> Self {
-        Self {
-            r: 255,
-            g: 255,
-            b: 255,
-        }
-    }
-}
-
-impl PrettyPrint for Color {
-    fn pp(&self) -> String {
-        format!("{} {} {}", self.r, self.g, self.b)
-    }
-}
-
 pub struct Canvas<const ROWS: usize, const COLS: usize> {
     pixels: HeapMatrix<Color, ROWS, COLS>,
+    max_color: u8,
 }
 
 impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
-    pub fn new() -> Self {
+    pub fn new(max_color: u8) -> Self {
         Self {
             pixels: HeapMatrix::new(Color::black()),
+            max_color,
         }
     }
     pub fn set(&mut self, value: Color, row: usize, col: usize) -> () {
         self.pixels.set(value, row, col);
     }
-    pub fn write_ppm(
-        &self,
-        filename: &str,
-        format: PpmFormat,
-        max_color: u8,
-    ) -> Result<(), std::io::Error> {
+    fn clamp(&self, pixel: TupleKind) -> Color {
+        Color {
+            r: (pixel.x().mul(self.max_color as f32) as u8)
+                .max(0)
+                .min(self.max_color),
+            g: (pixel.y().mul(self.max_color as f32) as u8)
+                .max(0)
+                .min(self.max_color),
+            b: (pixel.z().mul(self.max_color as f32) as u8)
+                .max(0)
+                .min(self.max_color),
+        }
+    }
+    pub fn write_pixel(&mut self, pixel: TupleKind, row: usize, col: usize) -> () {
+        let value = self.clamp(pixel);
+        self.set(value, row, col)
+    }
+    pub fn write_ppm(&self, filename: &str, format: PpmFormat) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
-        let header = format!("{}\n{} {}\n{}", format.pp(), COLS, ROWS, max_color);
+        let header = format!("{}\n{} {}\n{}", format.pp(), COLS, ROWS, self.max_color);
         let _ = writeln!(file, "{}", header,);
         match format {
             PpmFormat::P3 => {

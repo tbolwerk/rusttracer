@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use crate::tuples::*;
+use crate::tuples::{external_tuples::TupleKind, *};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
@@ -210,7 +210,12 @@ impl<const ROWS: usize, const COLS: usize> Mul for Matrix<ROWS, COLS> {
         mul(&self, &other)
     }
 }
-
+impl<const ROWS: usize, const COLS: usize> Mul<TupleKind> for Matrix<ROWS, COLS> {
+    type Output = TupleKind;
+    fn mul(self, rhs: TupleKind) -> Self::Output {
+        TupleKind::wrap(self * rhs.unwrap())
+    }
+}
 impl<const ROWS: usize, const COLS: usize> Mul<Tuple> for Matrix<ROWS, COLS> {
     type Output = Tuple;
     fn mul(self, other: Tuple) -> Self::Output {

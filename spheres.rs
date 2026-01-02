@@ -1,29 +1,43 @@
 use crate::intersections;
 use crate::intersections::*;
+use crate::materials::*;
 use crate::matrices::*;
 use crate::rays::*;
 use crate::transformations::*;
+use crate::tuples::external_tuples::*;
 use crate::tuples::*;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Sphere {
-    pub origin: Tuple,
+    pub origin: TupleKind,
     pub radius: f32,
     pub transform: Matrix<4, 4>,
+    pub material: Material,
 }
 
 impl Sphere {
-    pub const fn new(origin: Tuple, radius: f32, transform: Matrix<4, 4>) -> Self {
+    pub const fn new(
+        origin: TupleKind,
+        radius: f32,
+        transform: Matrix<4, 4>,
+        material: Material,
+    ) -> Self {
         Self {
             origin,
             radius,
             transform,
+            material,
         }
     }
     pub const fn unit() -> Self {
-        Self::new(Tuple::point(0.0, 0.0, 0.0), 1.0, Matrix::identity())
+        Self::new(
+            TupleKind::point(0.0, 0.0, 0.0),
+            1.0,
+            Matrix::identity(),
+            Material::default(),
+        )
     }
-    pub fn intersect(&self, ray: &Ray) -> Vec<Intersection> {
+    pub fn intersect(&self, ray: &Ray) -> Intersections {
         let ray2 = match inverse(&self.transform) {
             None => ray,
             Some(m) => &ray.transform(m),
@@ -31,14 +45,14 @@ impl Sphere {
 
         let sphere_to_ray = ray2.origin - self.origin;
 
-        let a = dot(&ray2.direction, &ray2.direction);
-        let b = 2.0 * dot(&ray2.direction, &sphere_to_ray);
-        let c = dot(&sphere_to_ray, &sphere_to_ray) - 1.0;
+        let a = ray2.direction.dot(&ray2.direction);
+        let b = 2.0 * ray2.direction.dot(&sphere_to_ray);
+        let c = sphere_to_ray.dot(&sphere_to_ray) - 1.0;
 
         let discriminant = b.powi(2) - 4.0 * a * c;
 
         if discriminant < 0.0 {
-            return vec![];
+            return Intersections::new(&[]);
         }
 
         let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
@@ -46,16 +60,34 @@ impl Sphere {
 
         let i1 = Intersection::new(t1, self.clone());
         let i2 = Intersection::new(t2, self.clone());
-        intersections(&[i1, i2])
+        Intersections::new(&[i1, i2])
     }
     pub fn set_transform(&mut self, transform: &Matrix<4, 4>) -> () {
         self.transform = transform.clone();
+    }
+    pub fn normal_at(&self, world_point: &TupleKind) -> TupleKind {
+        match inverse(&self.transform) {
+            None => (world_point.clone() - self.origin).normalize(),
+            Some(inv) => {
+                let object_point = inv * world_point.clone();
+                let object_normal = object_point - TupleKind::point(0.0, 0.0, 0.0);
+                let mut world_normal = transpose(&inv) * object_normal;
+                world_normal.set(3, 0.0);
+                world_normal.normalize()
+            }
+        }
+    }
+    pub fn set_material(&mut self, material: &Material) -> () {
+        self.material = material.clone();
     }
 }
 
 #[test]
 fn a_ray_intersects_a_sphere_at_two_points() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, -5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
     assert_eq!(xs[0].t, 4.0);
@@ -63,7 +95,10 @@ fn a_ray_intersects_a_sphere_at_two_points() {
 }
 #[test]
 fn a_ray_intersects_a_sphere_at_a_tangent() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 1.0, -5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 1.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
     assert_eq!(xs[0].t, 5.0);
@@ -71,14 +106,20 @@ fn a_ray_intersects_a_sphere_at_a_tangent() {
 }
 #[test]
 fn a_ray_misses_a_sphere() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 2.0, -5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 2.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
-    assert_eq!(xs.iter().count(), 0);
+    assert_eq!(xs.count(), 0);
 }
 #[test]
 fn a_ray_originates_inside_a_sphere() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, 0.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, 0.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
     assert_eq!(xs[0].t, -1.0);
@@ -86,7 +127,10 @@ fn a_ray_originates_inside_a_sphere() {
 }
 #[test]
 fn a_sphere_is_behind_a_ray() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, 5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, 5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
     assert_eq!(xs[0].t, -6.0);
@@ -94,10 +138,13 @@ fn a_sphere_is_behind_a_ray() {
 }
 #[test]
 fn intersect_sets_the_object_on_the_intersection() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, -5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
-    intersections(&[xs[0], xs[1]]);
+    Intersections::new(&[xs[0], xs[1]]);
     assert_eq!(xs[0].object, S);
 }
 #[test]
@@ -114,19 +161,105 @@ fn changing_a_spheres_transformation() {
 }
 #[test]
 fn intersecting_a_scaled_sphere_with_a_ray() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, -5.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     let mut s = Sphere::unit();
     s.set_transform(&scaling(2.0, 2.0, 2.0));
     let xs = s.intersect(&R);
-    assert_eq!(xs.iter().count(), 2);
+    assert_eq!(xs.count(), 2);
     assert_eq!(xs[0].t, 3.0);
     assert_eq!(xs[1].t, 7.0);
 }
 #[test]
 fn intersecting_a_translated_sphere_with_a_ray() {
-    const R: Ray = Ray::new(Tuple::point(0.0, 0.0, 0.0), Tuple::vector(0.0, 0.0, 1.0));
+    const R: Ray = Ray::new(
+        TupleKind::point(0.0, 0.0, 0.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
     let mut s = Sphere::unit();
     s.set_transform(&translation(5.0, 0.0, 0.0));
     let xs = s.intersect(&R);
-    assert_eq!(xs.iter().count(), 0);
+    assert_eq!(xs.count(), 0);
+}
+#[test]
+fn the_normal_on_a_sphere_at_a_point_on_the_x_axis() {
+    let s = Sphere::unit();
+    let n = s.normal_at(&TupleKind::point(1.0, 0.0, 0.0));
+    assert_eq!(n, TupleKind::vector(1.0, 0.0, 0.0));
+}
+#[test]
+fn the_normal_on_a_sphere_at_a_point_on_the_y_axis() {
+    let s = Sphere::unit();
+    let n = s.normal_at(&TupleKind::point(0.0, 1.0, 0.0));
+    assert_eq!(n, TupleKind::vector(0.0, 1.0, 0.0));
+}
+#[test]
+fn the_normal_on_a_sphere_at_a_point_on_the_z_axis() {
+    let s = Sphere::unit();
+    let n = s.normal_at(&TupleKind::point(0.0, 0.0, 1.0));
+    assert_eq!(n, TupleKind::vector(0.0, 0.0, 1.0));
+}
+#[test]
+fn the_normal_on_a_sphere_at_a_nonaxial_point() {
+    let s = Sphere::unit();
+    let n = s.normal_at(&TupleKind::point(
+        3.0_f32.sqrt() / 3.0,
+        3.0_f32.sqrt() / 3.0,
+        3.0_f32.sqrt() / 3.0,
+    ));
+    assert_eq!(
+        n,
+        TupleKind::vector(
+            3.0_f32.sqrt() / 3.0,
+            3.0_f32.sqrt() / 3.0,
+            3.0_f32.sqrt() / 3.0,
+        )
+    );
+}
+#[test]
+fn the_normal_is_a_normalized_vector() {
+    let s = Sphere::unit();
+    let n = s.normal_at(&TupleKind::point(
+        3.0_f32.sqrt() / 3.0,
+        3.0_f32.sqrt() / 3.0,
+        3.0_f32.sqrt() / 3.0,
+    ));
+    assert_eq!(n, n.normalize());
+}
+#[test]
+fn computing_the_normal_on_a_translated_sphere() {
+    let mut s = Sphere::unit();
+    s.set_transform(&translation(0.0, 1.0, 0.0));
+    let n = s.normal_at(&TupleKind::point(0.0, 1.70711, -0.70711));
+    assert_eq!(n, TupleKind::vector(0.0, 0.70711, -0.70711));
+}
+#[test]
+fn computing_the_normal_on_a_transformed_sphere() {
+    let mut s = Sphere::unit();
+    const M: Matrix<4, 4> = Matrix::identity()
+        .then(rotation_z(PI / 5.0))
+        .then(scaling(1.0, 0.5, 1.0));
+    s.set_transform(&M);
+    let n = s.normal_at(&TupleKind::point(
+        0.0,
+        2.0_f32.sqrt() / 2.0,
+        -2.0_f32.sqrt() / 2.0,
+    ));
+    assert_eq!(n, TupleKind::vector(0.0, 0.97014, -0.24254));
+}
+#[test]
+fn a_sphere_has_a_default_material() {
+    let s = Sphere::unit();
+    let m = s.material;
+    assert_eq!(m, Material::default());
+}
+#[test]
+fn a_sphere_may_be_assigned_a_material() {
+    let mut s = Sphere::unit();
+    let mut m = Material::default();
+    m.set_ambient(1.0);
+    s.set_material(&m);
+    assert_eq!(s.material, m);
 }
