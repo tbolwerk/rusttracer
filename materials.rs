@@ -2,11 +2,11 @@ use crate::{canvas::*, external_tuples::*, lights::*, tuples::*};
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Material {
-    color: TupleKind,
-    ambient: f32,
-    diffuse: f32,
-    specular: f32,
-    shininess: f32,
+    pub color: TupleKind,
+    pub ambient: f32,
+    pub diffuse: f32,
+    pub specular: f32,
+    pub shininess: f32,
 }
 
 impl Material {

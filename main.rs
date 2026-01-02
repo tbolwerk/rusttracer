@@ -3,6 +3,8 @@
 mod canvas;
 use canvas::*;
 
+mod worlds;
+use worlds::*;
 mod colors;
 use colors::*;
 mod materials;

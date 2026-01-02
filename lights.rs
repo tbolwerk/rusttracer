@@ -1,11 +1,11 @@
 use crate::tuples::external_tuples::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PointLight {
     pub position: TupleKind,
     pub intensity: TupleKind,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Light {
     Point(PointLight),
 }

@@ -1,0 +1,192 @@
+use crate::intersections;
+use crate::intersections::Computations;
+use crate::intersections::Intersection;
+use crate::intersections::Intersections;
+use crate::lights;
+use crate::lights::*;
+use crate::materials::lightning;
+use crate::materials::Material;
+use crate::matrices::Matrix;
+use crate::rays::Ray;
+use crate::spheres::*;
+use crate::transformations::*;
+use crate::tuples::external_tuples::TupleKind;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct World {
+    objects: Vec<Sphere>,
+    light: Option<Light>,
+}
+impl World {
+    pub fn new() -> Self {
+        Self {
+            objects: vec![],
+            light: None,
+        }
+    }
+    pub fn intersect_world(&self, ray: &Ray) -> Intersections {
+        let mut intersections = Intersections {
+            intersections: vec![],
+        };
+        for object in self.objects.clone() {
+            let xs = object.intersect(&ray);
+            intersections.extend(&xs);
+        }
+        intersections
+    }
+    pub fn shade_hit(&self, comps: &Computations) -> TupleKind {
+        match self.light {
+            None => TupleKind::color(0.0, 0.0, 0.0),
+            Some(light) => lightning(
+                &comps.object.material,
+                light,
+                comps.point,
+                comps.eyev,
+                comps.normalv,
+            ),
+        }
+    }
+    pub fn color_at(&self, ray: &Ray) -> TupleKind {
+        let xs = self.intersect_world(&ray);
+        match xs.hit() {
+            None => TupleKind::color(0.0, 0.0, 0.0),
+            Some(intersections) => self.shade_hit(&intersections.prepare_computations(&ray)),
+        }
+    }
+}
+impl Default for World {
+    fn default() -> Self {
+        let light = Light::Point(PointLight {
+            position: TupleKind::point(-10.0, 10.0, -10.0),
+            intensity: TupleKind::color(1.0, 1.0, 1.0),
+        });
+        let mut s1 = Sphere::unit();
+        let mut m1 = Material::default();
+        m1.set_color(TupleKind::color(0.8, 1.0, 0.6));
+        m1.set_diffuse(0.7);
+        m1.set_specular(0.2);
+        s1.set_material(&m1);
+
+        let mut s2 = Sphere::unit();
+        const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
+        s2.set_transform(&TRANSFORM);
+
+        World {
+            objects: [s1, s2].to_vec(),
+            light: Some(light),
+        }
+    }
+}
+
+#[test]
+fn creating_a_world() {
+    let w = World::new();
+    assert_eq!(w.objects, vec![]);
+    assert_eq!(w.light, None);
+}
+#[test]
+fn the_default_world() {
+    let light = Light::Point(PointLight {
+        position: TupleKind::point(-10.0, 10.0, -10.0),
+        intensity: TupleKind::color(1.0, 1.0, 1.0),
+    });
+    let mut s1 = Sphere::unit();
+    let mut m1 = Material::default();
+    m1.set_color(TupleKind::color(0.8, 1.0, 0.6));
+    m1.set_diffuse(0.7);
+    m1.set_specular(0.2);
+    s1.set_material(&m1);
+
+    let mut s2 = Sphere::unit();
+    const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
+    s2.set_transform(&TRANSFORM);
+
+    let w = World::default();
+    assert_eq!(w.light, Some(light));
+    assert_eq!(w.objects[0], s1);
+    assert_eq!(w.objects[1], s2);
+}
+#[test]
+fn intersect_a_world_with_a_ray() {
+    let w = World::default();
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
+    let xs = w.intersect_world(&r);
+    assert_eq!(xs.clone().count(), 4);
+    assert_eq!(xs[0].t, 4.0);
+    assert_eq!(xs[1].t, 4.5);
+    assert_eq!(xs[2].t, 5.5);
+    assert_eq!(xs[3].t, 6.0);
+}
+#[test]
+fn shading_an_intersection() {
+    let w = World::default();
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
+    let shape = w.objects[0];
+    let i = Intersection::new(4.0, shape);
+    let comps = i.prepare_computations(&&r);
+    assert_eq!(
+        w.shade_hit(&comps),
+        TupleKind::color(0.38066, 0.47583, 0.2855)
+    );
+}
+#[test]
+fn shading_an_intersection_from_the_inside() {
+    let mut w = World::default();
+    w.light = Some(Light::Point(PointLight {
+        position: TupleKind::point(0.0, 0.25, 0.0),
+        intensity: TupleKind::color(1.0, 1.0, 1.0),
+    }));
+
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, 0.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
+    let shape = w.objects[1];
+    let i = Intersection::new(0.5, shape);
+    let comps = i.prepare_computations(&&r);
+    assert_eq!(
+        w.shade_hit(&comps),
+        TupleKind::color(0.90498, 0.90498, 0.90498)
+    );
+}
+#[test]
+fn the_color_when_a_ray_misses() {
+    let w = World::default();
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 1.0, 0.0),
+    );
+    let c = w.color_at(&r);
+    assert_eq!(c, TupleKind::color(0.0, 0.0, 0.0));
+}
+#[test]
+fn the_color_when_a_ray_hits() {
+    let w = World::default();
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, -5.0),
+        TupleKind::vector(0.0, 0.0, 1.0),
+    );
+    let c = w.color_at(&r);
+    assert_eq!(c, TupleKind::color(0.38066, 0.47583, 0.2855));
+}
+#[test]
+fn the_color_with_an_intersection_behind_the_ray() {
+    let w = World::default();
+    let mut outer = w.objects[0];
+    outer.material.set_ambient(1.0);
+    let mut inner = w.objects[1];
+    inner.material.set_ambient(1.0);
+
+    let r = Ray::new(
+        TupleKind::point(0.0, 0.0, 0.75),
+        TupleKind::vector(0.0, 0.0, -1.0),
+    );
+    let c = w.color_at(&r);
+    assert_eq!(c, inner.material.color);
+}

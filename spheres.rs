@@ -115,7 +115,7 @@ fn a_ray_misses_a_sphere() {
     );
     const S: Sphere = Sphere::unit();
     let xs = S.intersect(&R);
-    assert_eq!(xs.count(), 0);
+    assert_eq!(xs.clone().count(), 0);
 }
 #[test]
 fn a_ray_originates_inside_a_sphere() {
@@ -171,7 +171,7 @@ fn intersecting_a_scaled_sphere_with_a_ray() {
     let mut s = Sphere::unit();
     s.set_transform(&scaling(2.0, 2.0, 2.0));
     let xs = s.intersect(&R);
-    assert_eq!(xs.count(), 2);
+    assert_eq!(xs.clone().count(), 2);
     assert_eq!(xs[0].t, 3.0);
     assert_eq!(xs[1].t, 7.0);
 }
@@ -184,7 +184,7 @@ fn intersecting_a_translated_sphere_with_a_ray() {
     let mut s = Sphere::unit();
     s.set_transform(&translation(5.0, 0.0, 0.0));
     let xs = s.intersect(&R);
-    assert_eq!(xs.count(), 0);
+    assert_eq!(xs.clone().count(), 0);
 }
 #[test]
 fn the_normal_on_a_sphere_at_a_point_on_the_x_axis() {
