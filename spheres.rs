@@ -12,6 +12,7 @@ pub struct Sphere {
     pub origin: TupleKind,
     pub radius: f32,
     pub transform: Matrix<4, 4>,
+    pub inverse_transform: Option<Matrix<4, 4>>,
     pub material: Material,
 }
 
@@ -26,6 +27,7 @@ impl Sphere {
             origin,
             radius,
             transform,
+            inverse_transform: None,
             material,
         }
     }
@@ -38,7 +40,7 @@ impl Sphere {
         )
     }
     pub fn intersect(&self, ray: &Ray) -> Intersections {
-        let ray2 = match inverse(&self.transform) {
+        let ray2 = match self.inverse_transform {
             None => ray,
             Some(m) => &ray.transform(m),
         };
@@ -64,9 +66,10 @@ impl Sphere {
     }
     pub fn set_transform(&mut self, transform: &Matrix<4, 4>) -> () {
         self.transform = transform.clone();
+        self.inverse_transform = inverse(&transform);
     }
     pub fn normal_at(&self, world_point: &TupleKind) -> TupleKind {
-        match inverse(&self.transform) {
+        match self.inverse_transform {
             None => (world_point.clone() - self.origin).normalize(),
             Some(inv) => {
                 let object_point = inv * world_point.clone();
