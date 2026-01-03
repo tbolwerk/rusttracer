@@ -98,6 +98,19 @@ pub const fn shearing(x_y: f32, x_z: f32, y_x: f32, y_z: f32, z_x: f32, z_y: f32
     m
 }
 
+pub fn view_transform(from: Point, to: Point, up: Vector) -> Matrix<4, 4> {
+    let forwardv = (to - from.clone()).normalize();
+    let leftv = forwardv.cross(&up.normalize());
+    let true_up = leftv.cross(&forwardv);
+    let orientation = Matrix::new([
+        [leftv.x(), leftv.y(), leftv.z(), 0.0],
+        [true_up.x(), true_up.y(), true_up.z(), 0.0],
+        [-forwardv.x(), -forwardv.y(), -forwardv.z(), 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+    orientation * translation(-from.x(), -from.y(), -from.z())
+}
+
 #[test]
 fn multiplying_by_a_translation_matrix() {
     const TRANSFORM: Matrix<4, 4> = translation(5.0, -3.0, 2.0);

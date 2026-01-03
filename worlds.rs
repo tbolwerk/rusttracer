@@ -298,3 +298,91 @@ fn the_color_with_an_intersection_behind_the_ray() {
     let c = w.color_at(&r);
     assert_eq!(c, w.objects[1].material.color);
 }
+#[test]
+fn the_transformation_matrix_for_the_default_orientation() {
+    let from = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let to = Point {
+        x: 0.0,
+        y: 0.0,
+        z: -1.0,
+    };
+    let up = Vector {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let t = view_transform(from, to, up);
+    assert_eq!(t, Matrix::identity());
+}
+#[test]
+fn a_view_transformation_matrix_looking_in_positive_z_direction() {
+    let from = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let to = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    };
+    let up = Vector {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let t = view_transform(from, to, up);
+    assert_eq!(t, scaling(-1.0, 1.0, -1.0));
+}
+#[test]
+fn the_view_transformation_moves_the_world() {
+    let from = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let to = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let up = Vector {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let t = view_transform(from, to, up);
+    assert_eq!(t, scaling(0.0, 0.0, -8.0));
+}
+#[test]
+fn an_arbitrary_view_transformation() {
+    let from = Point {
+        x: 1.0,
+        y: 3.0,
+        z: 2.0,
+    };
+    let to = Point {
+        x: 4.0,
+        y: -2.0,
+        z: 8.0,
+    };
+    let up = Vector {
+        x: 1.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let t = view_transform(from, to, up);
+    assert_eq!(
+        t,
+        Matrix::new([
+            [-0.50709, 0.50709, 0.67612, -2.36643],
+            [0.76772, 0.60609, 0.12122, -2.82843],
+            [-0.35857, 0.59761, -0.71714, 0.0],
+            [0.0, 0.0, 0.0, 1.0]
+        ])
+    );
+}
