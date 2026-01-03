@@ -17,6 +17,7 @@ pub struct Computations<'a> {
     pub eyev: Vector,
     pub normalv: Vector,
     pub inside: bool,
+    pub over_point: Point,
 }
 impl<'a> Intersection<'a> {
     pub fn prepare_computations(&self, ray: &Ray) -> Computations<'a> {
@@ -28,6 +29,7 @@ impl<'a> Intersection<'a> {
             inside = true;
             normalv = -normalv;
         }
+        let over_point = point.clone() + normalv.clone() * EPSILON;
         Computations {
             t: self.t,
             object: self.object,
@@ -35,6 +37,7 @@ impl<'a> Intersection<'a> {
             eyev: eyev,
             normalv: normalv,
             inside: inside,
+            over_point: over_point,
         }
     }
 }

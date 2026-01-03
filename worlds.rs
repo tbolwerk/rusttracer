@@ -15,7 +15,7 @@ use crate::tuples::*;
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     pub objects: Vec<Sphere>,
-    light: Option<Light>,
+    pub light: Option<Light>,
 }
 impl World {
     pub fn new() -> Self {
@@ -35,6 +35,7 @@ impl World {
         intersections
     }
     pub fn shade_hit(&self, comps: Computations) -> Color {
+        let shadowed = self.is_shadowed(comps.over_point);
         match self.light.clone() {
             None => Color {
                 r: 0.0,
@@ -47,7 +48,7 @@ impl World {
                 comps.point,
                 comps.eyev,
                 comps.normalv,
-                false,
+                shadowed,
             ),
         }
     }
@@ -60,6 +61,28 @@ impl World {
                 b: 0.0,
             },
             Some(intersections) => self.shade_hit(intersections.prepare_computations(&ray)),
+        }
+    }
+    pub fn is_shadowed(&self, point: Point) -> bool {
+        match self.light.clone() {
+            None => true,
+            Some(light) => {
+                let v = light.position() - point.clone();
+                let distance = v.magnitude();
+                let direction = v.normalize();
+
+                let r = Ray {
+                    origin: point,
+                    direction,
+                };
+
+                let intersections = self.intersect_world(&r);
+
+                match intersections.hit() {
+                    None => false,
+                    Some(intersection) => intersection.t < distance,
+                }
+            }
         }
     }
 }
@@ -386,4 +409,117 @@ fn an_arbitrary_view_transformation() {
             [0.0, 0.0, 0.0, 1.0]
         ])
     );
+}
+#[test]
+fn there_is_no_shadow_when_nothing_is_collinear_with_point_and_light() {
+    let w = World::default();
+    let p = Point {
+        x: 0.0,
+        y: 10.0,
+        z: 0.0,
+    };
+    assert_eq!(w.is_shadowed(p), false);
+}
+#[test]
+fn the_shadow_when_an_object_is_between_the_point_and_the_light() {
+    let w = World::default();
+    let p = Point {
+        x: 10.0,
+        y: -10.0,
+        z: 10.0,
+    };
+    assert_eq!(w.is_shadowed(p), true);
+}
+#[test]
+fn there_is_no_shadow_when_an_object_is_behind_the_light() {
+    let w = World::default();
+    let p = Point {
+        x: -20.0,
+        y: 20.0,
+        z: -20.0,
+    };
+    assert_eq!(w.is_shadowed(p), false);
+}
+#[test]
+fn there_is_no_shadow_when_an_object_is_behind_the_point() {
+    let w = World::default();
+    let p = Point {
+        x: -2.0,
+        y: 2.0,
+        z: -2.0,
+    };
+    assert_eq!(w.is_shadowed(p), false);
+}
+#[test]
+fn shade_hit_is_given_an_intersection_in_shadow() {
+    let mut w = World::default();
+    let light = Light::Point(PointLight {
+        position: Point {
+            x: 0.0,
+            y: 0.0,
+            z: 10.0,
+        },
+        intensity: Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    });
+    w.light = Some(light);
+    let s1 = Sphere::unit();
+    const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 10.0);
+    let mut s2 = Sphere::unit();
+    s2.set_transform(&TRANSFORM);
+    let r = Ray {
+        origin: Point {
+            x: 0.0,
+            y: 0.0,
+            z: 5.0,
+        },
+        direction: Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        },
+    };
+    let i = Intersection {
+        t: 4.0,
+        object: &s2,
+    };
+    let comps = i.prepare_computations(&r);
+    w.objects.extend(vec![s1, s2.clone()]);
+    let c = w.shade_hit(comps);
+    assert_eq!(
+        c,
+        Color {
+            r: 0.1,
+            g: 0.1,
+            b: 0.1
+        }
+    );
+}
+#[test]
+fn the_hit_should_offset_the_point() {
+    let r = Ray {
+        origin: Point {
+            x: 0.0,
+            y: 0.0,
+            z: -5.0,
+        },
+        direction: Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+    };
+    let mut shape = Sphere::unit();
+    const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 1.0);
+    shape.set_transform(&TRANSFORM);
+    let i = Intersection {
+        t: 5.0,
+        object: &shape,
+    };
+    let comps = i.prepare_computations(&r);
+    assert_eq!(comps.over_point.z() < -EPSILON / 2.0, true);
+    assert_eq!(comps.point.z() > comps.over_point.z(), true);
 }
