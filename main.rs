@@ -22,9 +22,7 @@ use transformations::*;
 mod matrices;
 use matrices::*;
 mod tuples;
-use tuples::*;
-
-use crate::tuples::external_tuples::{TupleKind, VectorMath};
+use tuples::mytuples::*;
 
 fn main() -> Result<(), ()> {
     let _ = chapter1();
@@ -36,22 +34,37 @@ fn main() -> Result<(), ()> {
 fn chapter6() {
     let mut sphere = Sphere::unit();
     let mut material = Material::default();
-    let color = TupleKind::color(1.0, 0.2, 1.0);
+    let color = Color {
+        r: 1.0,
+        g: 0.2,
+        b: 1.0,
+    };
     material.set_color(color);
     sphere.set_material(&material);
 
-    const TRANSFORM: Matrix<4, 4> = Matrix::identity()
-        .then(scaling(0.1, 0.1, 0.1))
-        .then(rotation_z(PI / 6.0))
-        .then(shearing(1.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+    const TRANSFORM: Matrix<4, 4> = Matrix::identity().then(scaling(0.1, 0.1, 0.1));
+    // .then(rotation_z(PI / 6.0))
+    //.then(shearing(1.0, 0.0, 0.0, 0.0, 0.0, 0.0));
 
     sphere.set_transform(&TRANSFORM);
 
-    let light_position = TupleKind::point(-10.0, 10.0, -10.0);
-    let light_color = TupleKind::color(1.0, 1.0, 1.0);
+    let light_position = Point {
+        x: -10.0,
+        y: 10.0,
+        z: -10.0,
+    };
+    let light_color = Color {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+    };
     let light = Light::Point(PointLight::new(light_position, light_color));
 
-    let ray_origin = TupleKind::point(0.0, 0.0, -0.5);
+    let ray_origin = Point {
+        x: 0.0,
+        y: 0.0,
+        z: -0.5,
+    };
     let wall_z = 10.0;
     let wall_size = 7.0;
     const CANVAS_PIXELS: usize = 1000;
@@ -62,8 +75,15 @@ fn chapter6() {
         let world_y = half - pixel_size * y as f32;
         for x in 0..CANVAS_PIXELS {
             let world_x = -half + pixel_size * x as f32;
-            let current_position = TupleKind::point(world_x, world_y, wall_z);
-            let ray = Ray::new(ray_origin, (current_position - ray_origin).normalize());
+            let current_position = Point {
+                x: world_x,
+                y: world_y,
+                z: wall_z,
+            };
+            let ray = Ray {
+                origin: ray_origin.clone(),
+                direction: (current_position - ray_origin.clone()).normalize(),
+            };
             let xs = sphere.intersect(&ray);
             match xs.hit() {
                 None => (),
@@ -72,7 +92,7 @@ fn chapter6() {
                     let normal = hit.object.normal_at(&point);
                     let eye = -ray.direction;
 
-                    let color = lightning(&hit.object.material, light, point, eye, normal);
+                    let color = lightning(&hit.object.material, light.clone(), point, eye, normal);
                     canvas.write_pixel(color, y, x);
                 }
             }
@@ -86,14 +106,18 @@ fn chapter6() {
     }
 }
 fn chapter5() {
-    let ray_origin = TupleKind::point(0.0, 0.0, -5.0);
+    let ray_origin = Point {
+        x: 0.0,
+        y: 0.0,
+        z: -5.0,
+    };
     const WALL_Z: f32 = 10.0;
     const WALL_SIZE: f32 = 7.0;
     const CANVAS_PIXELS: usize = 100;
     const PIXEL_SIZE: f32 = WALL_SIZE / CANVAS_PIXELS as f32;
     const HALF: f32 = WALL_SIZE / 2.0;
     let mut canvas: Canvas<CANVAS_PIXELS, CANVAS_PIXELS> = Canvas::new(255);
-    let color = Color::red();
+    let color = Pixel::red();
     let mut shape = Sphere::unit();
     const TRANSFORM: Matrix<4, 4> = Matrix::identity()
         .then(scaling(0.5, 1.0, 1.0))
@@ -106,9 +130,16 @@ fn chapter5() {
         let world_y = HALF - PIXEL_SIZE * y as f32;
         for x in 0..CANVAS_PIXELS - 1 {
             let world_x = -HALF + PIXEL_SIZE * x as f32;
-            let position = TupleKind::point(world_x, world_y, WALL_Z);
+            let position = Point {
+                x: world_x,
+                y: world_y,
+                z: WALL_Z,
+            };
 
-            let r = Ray::new(ray_origin, (position - ray_origin).normalize());
+            let r = Ray {
+                origin: ray_origin.clone(),
+                direction: (position - ray_origin.clone()).normalize(),
+            };
             let xs = shape.intersect(&r);
 
             match xs.hit() {
@@ -133,7 +164,11 @@ fn chapter4() -> Result<(), ()> {
     // 12 o'clock position
     const SCALE: Matrix<4, 4> = scaling(150.0, 150.0, 150.0);
     const TRANSLATE: Matrix<4, 4> = translation(200.0, 200.0, 200.0);
-    const START: TupleKind = TupleKind::point(0.0, 0.0, 1.0);
+    let start = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    };
 
     const HOURS_COUNT: usize = 12;
     const STEP_SIZE: f32 = 360.0 / HOURS_COUNT as f32;
@@ -150,10 +185,10 @@ fn chapter4() -> Result<(), ()> {
 
     // Iterate over compile-time calculated transform matrix
     for transform in HOURS.iter() {
-        let p = *transform * START;
+        let p = *transform * start.clone();
         let x = p.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
         let z = p.z().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
-        c.set(Color::white(), x, z);
+        c.set(Pixel::white(), x, z);
     }
     let filename = "chapter4.ppm";
     let result = c.write_ppm(filename, PpmFormat::P3);
@@ -165,49 +200,67 @@ fn chapter4() -> Result<(), ()> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Projectile {
-    position: Tuple,
-    velocity: Tuple,
+    position: Point,
+    velocity: Vector,
 }
 
 impl Projectile {
-    fn new(position: Tuple, velocity: Tuple) -> Self {
+    fn new(position: Point, velocity: Vector) -> Self {
         Self { position, velocity }
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct Environment {
-    gravity: Tuple,
-    wind: Tuple,
+    gravity: Vector,
+    wind: Vector,
 }
 
 impl Environment {
-    fn new(gravity: Tuple, wind: Tuple) -> Self {
+    fn new(gravity: Vector, wind: Vector) -> Self {
         Self { gravity, wind }
     }
 }
 
 fn tick(env: Environment, proj: Projectile) -> Projectile {
-    let position = proj.position + proj.velocity;
+    let position = proj.position + proj.velocity.clone();
     let velocity = proj.velocity + env.gravity + env.wind;
     Projectile::new(position, velocity)
 }
 
 fn chapter1() -> std::io::Result<()> {
-    let start = Tuple::point(0.0, 1.0, 0.0);
-    let velocity = normalize(&Tuple::vector(1.0, 1.8, 0.0)) * 11.25;
+    let start = Point {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let velocity = Vector {
+        x: 1.0,
+        y: 1.8,
+        z: 0.0,
+    }
+    .normalize()
+        * 11.25;
     let mut p = Projectile::new(start, velocity);
     let e = Environment::new(
-        Tuple::vector(0.0, -0.1, 0.0),
-        Tuple::vector(-0.01, 0.0, 0.0),
+        Vector {
+            x: 0.0,
+            y: -0.1,
+            z: 0.0,
+        },
+        Vector {
+            x: -0.01,
+            y: 0.0,
+            z: 0.0,
+        },
     );
 
-    let mut positions: Vec<Tuple> = vec![];
-    while p.position.y() > 0.0 {
-        positions.push(p.position);
-        p = tick(e, p);
+    let mut positions: Vec<Point> = vec![];
+    while p.position.clone().y() > 0.0 {
+        positions.push(p.position.clone());
+        p = tick(e.clone(), p);
     }
 
     const WIDTH: usize = 900;
@@ -218,7 +271,7 @@ fn chapter1() -> std::io::Result<()> {
     for position in positions {
         let y = position.y().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
         let x = position.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
-        canvas.set(Color::white(), HEIGHT - y, x);
+        canvas.set(Pixel::white(), HEIGHT - y, x);
     }
 
     let filename = "chapter1.ppm";

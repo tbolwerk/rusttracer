@@ -1,5 +1,5 @@
 use crate::colors::*;
-use crate::tuples::external_tuples::TupleKind;
+use crate::tuples::mytuples::*;
 use std::fmt::Write as StringWrite;
 use std::fs::File;
 use std::io::Write;
@@ -73,35 +73,35 @@ pub trait Serialize {
     fn to_bytes(&self) -> Vec<u8>;
 }
 pub struct Canvas<const ROWS: usize, const COLS: usize> {
-    pixels: HeapMatrix<Color, ROWS, COLS>,
+    pixels: HeapMatrix<Pixel, ROWS, COLS>,
     max_color: u8,
 }
 
 impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
     pub fn new(max_color: u8) -> Self {
         Self {
-            pixels: HeapMatrix::new(Color::black()),
+            pixels: HeapMatrix::new(Pixel::black()),
             max_color,
         }
     }
-    pub fn set(&mut self, value: Color, row: usize, col: usize) -> () {
+    pub fn set(&mut self, value: Pixel, row: usize, col: usize) -> () {
         self.pixels.set(value, row, col);
     }
-    fn clamp(&self, pixel: TupleKind) -> Color {
-        Color {
-            r: (pixel.x().mul(self.max_color as f32) as u8)
+    fn clamp(&self, color: Color) -> Pixel {
+        Pixel {
+            r: (color.r.mul(self.max_color as f32) as u8)
                 .max(0)
                 .min(self.max_color),
-            g: (pixel.y().mul(self.max_color as f32) as u8)
+            g: (color.g.mul(self.max_color as f32) as u8)
                 .max(0)
                 .min(self.max_color),
-            b: (pixel.z().mul(self.max_color as f32) as u8)
+            b: (color.b.mul(self.max_color as f32) as u8)
                 .max(0)
                 .min(self.max_color),
         }
     }
-    pub fn write_pixel(&mut self, pixel: TupleKind, row: usize, col: usize) -> () {
-        let value = self.clamp(pixel);
+    pub fn write_pixel(&mut self, color: Color, row: usize, col: usize) -> () {
+        let value = self.clamp(color);
         self.set(value, row, col)
     }
     pub fn write_ppm(&self, filename: &str, format: PpmFormat) -> Result<(), std::io::Error> {

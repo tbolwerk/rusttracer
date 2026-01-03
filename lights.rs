@@ -1,17 +1,17 @@
-use crate::tuples::external_tuples::*;
+use crate::tuples::mytuples::*;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PointLight {
-    pub position: TupleKind,
-    pub intensity: TupleKind,
+    pub position: Point,
+    pub intensity: Color,
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Light {
     Point(PointLight),
 }
 
 impl PointLight {
-    pub const fn new(position: TupleKind, intensity: TupleKind) -> Self {
+    pub const fn new(position: Point, intensity: Color) -> Self {
         Self {
             position,
             intensity,
@@ -20,39 +20,47 @@ impl PointLight {
 }
 
 pub trait LightProperties {
-    fn position(&self) -> TupleKind;
-    fn intensity(&self) -> TupleKind;
+    fn position(&self) -> Point;
+    fn intensity(&self) -> Color;
 }
 
 impl LightProperties for PointLight {
-    fn position(&self) -> TupleKind {
-        self.position
+    fn position(&self) -> Point {
+        self.position.clone()
     }
-    fn intensity(&self) -> TupleKind {
-        self.intensity
+    fn intensity(&self) -> Color {
+        self.intensity.clone()
     }
 }
 
 impl LightProperties for Light {
-    fn position(&self) -> TupleKind {
+    fn position(&self) -> Point {
         match self {
-            Light::Point(light) => light.position,
+            Light::Point(light) => light.position.clone(),
         }
     }
-    fn intensity(&self) -> TupleKind {
+    fn intensity(&self) -> Color {
         match self {
-            Light::Point(light) => light.intensity,
+            Light::Point(light) => light.intensity.clone(),
         }
     }
 }
 
 #[test]
 fn a_point_light_has_a_position_and_intensity() {
-    let intensity = TupleKind::color(1.0, 1.0, 1.0);
-    let position = TupleKind::point(0.0, 0.0, 0.0);
+    let intensity = Color {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+    };
+    let position = Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
     let light = Light::Point(PointLight {
-        position,
-        intensity,
+        position: position.clone(),
+        intensity: intensity.clone(),
     });
     assert_eq!(light.position(), position);
     assert_eq!(light.intensity(), intensity);

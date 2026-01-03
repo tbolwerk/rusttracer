@@ -1,17 +1,16 @@
-use crate::external_tuples::*;
 pub trait PrettyPrint {
     fn pp(&self) -> String;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Color {
+pub struct Pixel {
     pub r: u8,
     pub g: u8,
     pub b: u8,
 }
 
-impl Color {
-    pub const fn new(r: u8, g: u8, b: u8) -> Color {
+impl Pixel {
+    pub const fn new(r: u8, g: u8, b: u8) -> Pixel {
         Self { r, g, b }
     }
     pub const fn red() -> Self {
@@ -31,7 +30,7 @@ impl Color {
     }
 }
 
-impl PrettyPrint for Color {
+impl PrettyPrint for Pixel {
     fn pp(&self) -> String {
         format!("{} {} {}", self.r, self.g, self.b)
     }

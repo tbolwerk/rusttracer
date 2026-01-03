@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use crate::tuples::{external_tuples::TupleKind, *};
+use crate::tuples::{mytuples::*, EPSILON};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
@@ -210,16 +210,14 @@ impl<const ROWS: usize, const COLS: usize> Mul for Matrix<ROWS, COLS> {
         mul(&self, &other)
     }
 }
-impl<const ROWS: usize, const COLS: usize> Mul<TupleKind> for Matrix<ROWS, COLS> {
-    type Output = TupleKind;
-    fn mul(self, rhs: TupleKind) -> Self::Output {
-        TupleKind::wrap(self * rhs.unwrap())
-    }
-}
-impl<const ROWS: usize, const COLS: usize> Mul<Tuple> for Matrix<ROWS, COLS> {
-    type Output = Tuple;
-    fn mul(self, other: Tuple) -> Self::Output {
-        let mut result = Tuple::init(0.0);
+
+impl<const ROWS: usize, const COLS: usize, T> Mul<T> for Matrix<ROWS, COLS>
+where
+    T: Tuple + Default,
+{
+    type Output = T;
+    fn mul(self, other: T) -> Self::Output {
+        let mut result: T = Default::default();
         for row in 0..ROWS {
             let mut cel = 0.0;
             for col in 0..COLS {
@@ -328,8 +326,19 @@ fn a_matrix_multiplied_by_a_tuple() {
         [8.0, 6.0, 4.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
     ]);
-    let b = Tuple::new(1.0, 2.0, 3.0, 1.0);
-    assert_eq!(a * b, Tuple::new(18.0, 24.0, 33.0, 1.0));
+    let b = Point {
+        x: 1.0,
+        y: 2.0,
+        z: 3.0,
+    };
+    assert_eq!(
+        a * b,
+        Point {
+            x: 18.0,
+            y: 24.0,
+            z: 33.0
+        }
+    );
 }
 #[test]
 fn multiplying_a_matrix_by_the_identity_matrix() {
