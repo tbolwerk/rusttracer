@@ -89,13 +89,13 @@ impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
     }
     fn clamp(&self, color: Color) -> Pixel {
         Pixel {
-            r: (color.r.mul(self.max_color as f32) as u8)
+            r: (color.r.mul(self.max_color as f32).round() as u8)
                 .max(0)
                 .min(self.max_color),
-            g: (color.g.mul(self.max_color as f32) as u8)
+            g: (color.g.mul(self.max_color as f32).round() as u8)
                 .max(0)
                 .min(self.max_color),
-            b: (color.b.mul(self.max_color as f32) as u8)
+            b: (color.b.mul(self.max_color as f32).round() as u8)
                 .max(0)
                 .min(self.max_color),
         }

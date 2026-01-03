@@ -1,6 +1,8 @@
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 mod canvas;
+use std::str::Matches;
+
 use canvas::*;
 
 mod camera;
@@ -31,7 +33,102 @@ fn main() -> Result<(), ()> {
     let _ = chapter4();
     let _ = chapter5();
     let _ = chapter6();
+    let _ = chapter7();
     Ok(())
+}
+fn chapter7() {
+    let mut floor = Sphere::unit();
+    floor.set_transform(&scaling(10.0, 0.01, 10.0));
+    let mut material = Material::default();
+    material.set_color(Color {
+        r: 1.0,
+        g: 0.9,
+        b: 0.9,
+    });
+    material.specular = 0.0;
+    floor.set_material(&material);
+
+    let mut left_wall = Sphere::unit();
+    const LEFT_WALL_TRANSFORMATION: Matrix<4, 4> = scaling(10.0, 0.01, 10.0)
+        .then(rotation_x(PI / 2.0))
+        .then(rotation_y(-PI / 4.0))
+        .then(translation(0.0, 0.0, 5.0));
+    left_wall.set_transform(&LEFT_WALL_TRANSFORMATION);
+    left_wall.set_material(&material);
+
+    let mut right_wall = Sphere::unit();
+    const RIGHT_WALL_TRANSFORMATION: Matrix<4, 4> = scaling(10.0, 0.01, 10.0)
+        .then(rotation_x(PI / 2.0))
+        .then(rotation_y(PI / 4.0))
+        .then(translation(0.0, 0.0, 5.0));
+    right_wall.set_transform(&RIGHT_WALL_TRANSFORMATION);
+
+    let mut middle = Sphere::unit();
+    middle.set_transform(&translation(-0.5, 1.0, 0.5));
+    let mut middle_material = Material::default();
+    middle_material.set_color(Color {
+        r: 0.1,
+        g: 1.0,
+        b: 0.5,
+    });
+    middle_material.diffuse = 0.7;
+    middle_material.specular = 0.3;
+    middle.set_material(&middle_material);
+
+    let mut right = Sphere::unit();
+    const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
+    right.set_transform(&RIGHT_TRANSFORM);
+    let mut right_material = Material::default();
+    right_material.set_color(Color {
+        r: 0.5,
+        g: 1.0,
+        b: 0.1,
+    });
+    right_material.set_diffuse(0.7);
+    right_material.set_specular(0.3);
+    right.set_material(&right_material);
+
+    let mut left = Sphere::unit();
+    const LEFT_TRANSFORMATION: Matrix<4, 4> =
+        scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
+    left.set_transform(&LEFT_TRANSFORMATION);
+    let mut left_material = Material::default();
+    left_material.set_color(Color {
+        r: 1.0,
+        g: 0.8,
+        b: 0.1,
+    });
+    left_material.set_diffuse(0.7);
+    left_material.set_specular(0.3);
+    left.set_material(&left_material);
+
+    let mut world = World::default();
+    world.objects = vec![floor, left_wall, right_wall, middle, right, left];
+    let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 1.5,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    let canvas = camera.render(world);
+    let filename = "chapter7.ppm";
+    let result = canvas.write_ppm(filename, PpmFormat::P6);
+    match result {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
 }
 fn chapter6() {
     let mut sphere = Sphere::unit();

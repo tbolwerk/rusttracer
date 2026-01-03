@@ -14,7 +14,7 @@ use crate::tuples::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
-    objects: Vec<Sphere>,
+    pub objects: Vec<Sphere>,
     light: Option<Light>,
 }
 impl World {
