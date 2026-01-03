@@ -3,6 +3,8 @@
 mod canvas;
 use canvas::*;
 
+mod camera;
+use camera::*;
 mod worlds;
 use worlds::*;
 mod colors;
