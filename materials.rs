@@ -61,10 +61,15 @@ pub fn lightning(
     point: Point,
     eyev: Vector,
     normalv: Vector,
+    in_shadow: bool,
 ) -> Color {
     let effective_color = material.color.clone() * light.intensity();
     let lightv = (light.position() - point).normalize();
     let ambient = effective_color.clone() * material.ambient;
+
+    if in_shadow {
+        return ambient;
+    }
 
     let light_dot_normal = lightv.dot(&normalv);
     let mut diffuse = Color {
@@ -140,7 +145,7 @@ fn lightning_with_the_eye_between_the_light_and_the_surface() {
             b: 1.0,
         },
     });
-    let result = lightning(&m, light, position, eyev, normalv);
+    let result = lightning(&m, light, position, eyev, normalv, false);
     assert_eq!(
         result,
         Color {
@@ -175,7 +180,7 @@ fn lightning_with_the_eye_between_the_light_and_the_surface_eye_offset_45_degree
             b: 1.0,
         },
     });
-    let result = lightning(&m, light, position, eyev, normalv);
+    let result = lightning(&m, light, position, eyev, normalv, false);
     assert_eq!(
         result,
         Color {
@@ -210,7 +215,7 @@ fn lightning_with_eye_opposite_surface_light_offset_45_degrees() {
             b: 1.0,
         },
     });
-    let result = lightning(&m, light, position, eyev, normalv);
+    let result = lightning(&m, light, position, eyev, normalv, false);
     assert_eq!(
         result,
         Color {
@@ -245,7 +250,7 @@ fn lightning_with_eye_in_the_path_of_the_reflection_vector() {
             b: 1.0,
         },
     });
-    let result = lightning(&m, light, position, eyev, normalv);
+    let result = lightning(&m, light, position, eyev, normalv, false);
     assert_eq!(
         result,
         Color {
@@ -280,7 +285,7 @@ fn lightning_with_the_light_behind_the_surface() {
             b: 1.0,
         },
     });
-    let result = lightning(&m, light, position, eyev, normalv);
+    let result = lightning(&m, light, position, eyev, normalv, false);
     assert_eq!(
         result,
         Color {
@@ -288,5 +293,41 @@ fn lightning_with_the_light_behind_the_surface() {
             g: 0.1,
             b: 0.1
         }
+    );
+}
+#[test]
+fn lighting_with_the_surface_in_shadow() {
+    let (m, position) = background();
+    let eyev = Vector {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let normalv = Vector {
+        x: 0.0,
+        y: 0.0,
+        z: -1.0,
+    };
+    let light = Light::Point(PointLight {
+        position: Point {
+            x: 0.0,
+            y: 0.0,
+            z: -10.0,
+        },
+        intensity: Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    });
+    let in_shadow = true;
+    let result = lightning(&m, light, position, eyev, normalv, in_shadow);
+    assert_eq!(
+        Color {
+            r: 0.1,
+            g: 0.1,
+            b: 0.1
+        },
+        result
     );
 }

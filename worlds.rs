@@ -47,6 +47,7 @@ impl World {
                 comps.point,
                 comps.eyev,
                 comps.normalv,
+                false,
             ),
         }
     }

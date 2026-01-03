@@ -191,7 +191,14 @@ fn chapter6() {
                     let normal = hit.object.normal_at(&point);
                     let eye = -ray.direction;
 
-                    let color = lightning(&hit.object.material, light.clone(), point, eye, normal);
+                    let color = lightning(
+                        &hit.object.material,
+                        light.clone(),
+                        point,
+                        eye,
+                        normal,
+                        false,
+                    );
                     canvas.write_pixel(color, y, x);
                 }
             }
