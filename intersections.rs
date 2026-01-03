@@ -3,7 +3,7 @@ use std::ops::Index;
 use crate::intersections;
 use crate::rays::*;
 use crate::spheres::*;
-use crate::tuples::mytuples::*;
+use crate::tuples::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Intersection<'a> {

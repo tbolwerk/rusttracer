@@ -4,7 +4,7 @@ use crate::materials::*;
 use crate::matrices::*;
 use crate::rays::*;
 use crate::transformations::*;
-use crate::tuples::mytuples::*;
+use crate::tuples::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Sphere {

@@ -1,5 +1,4 @@
-use crate::tuples::mytuples::*;
-use crate::{matrices::Matrix, transformations::*, tuples::external_tuples::*};
+use crate::{matrices::Matrix, transformations::*, tuples::*};
 pub struct Ray {
     pub origin: Point,
     pub direction: Vector,

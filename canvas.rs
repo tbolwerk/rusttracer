@@ -1,5 +1,5 @@
 use crate::colors::*;
-use crate::tuples::mytuples::*;
+use crate::tuples::*;
 use std::fmt::Write as StringWrite;
 use std::fs::File;
 use std::io::Write;

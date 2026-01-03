@@ -10,7 +10,7 @@ use crate::matrices::Matrix;
 use crate::rays::Ray;
 use crate::spheres::*;
 use crate::transformations::*;
-use crate::tuples::mytuples::*;
+use crate::tuples::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {

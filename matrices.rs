@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use crate::tuples::{mytuples::*, EPSILON};
+use crate::tuples::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {

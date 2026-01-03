@@ -1,4 +1,4 @@
-use crate::{lights::*, tuples::mytuples::*};
+use crate::{lights::*, tuples::*};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {

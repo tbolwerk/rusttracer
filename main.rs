@@ -22,7 +22,7 @@ use transformations::*;
 mod matrices;
 use matrices::*;
 mod tuples;
-use tuples::mytuples::*;
+use tuples::*;
 
 fn main() -> Result<(), ()> {
     let _ = chapter1();
