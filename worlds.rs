@@ -277,18 +277,24 @@ fn the_color_when_a_ray_hits() {
         }
     );
 }
-/* #[test]
+#[test]
 fn the_color_with_an_intersection_behind_the_ray() {
-    let w = World::default();
-    let mut outer = w.objects[0];
-    outer.material.set_ambient(1.0);
-    let mut inner = w.objects[1];
-    inner.material.set_ambient(1.0);
+    let mut w = World::default();
+    w.objects[0].material.set_ambient(1.0);
+    w.objects[1].material.set_ambient(1.0);
 
-    let r = Ray::new(
-        TupleKind::point(0.0, 0.0, 0.75),
-        TupleKind::vector(0.0, 0.0, -1.0),
-    );
+    let r = Ray {
+        origin: Point {
+            x: 0.0,
+            y: 0.0,
+            z: 0.75,
+        },
+        direction: Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        },
+    };
     let c = w.color_at(&r);
-    assert_eq!(c, inner.material.color);
-} */
+    assert_eq!(c, w.objects[1].material.color);
+}
