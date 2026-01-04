@@ -1,4 +1,5 @@
 use crate::{matrices::Matrix, transformations::*, tuples::*};
+#[derive(Debug, PartialEq, Clone)]
 pub struct Ray {
     pub origin: Point,
     pub direction: Vector,

@@ -8,13 +8,13 @@ use crate::materials::lightning;
 use crate::materials::Material;
 use crate::matrices::Matrix;
 use crate::rays::Ray;
-use crate::spheres::*;
+use crate::shapes::*;
 use crate::transformations::*;
 use crate::tuples::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
-    pub objects: Vec<Sphere>,
+    pub objects: Vec<Shape>,
     pub light: Option<Light>,
 }
 impl World {
@@ -24,17 +24,18 @@ impl World {
             light: None,
         }
     }
-    pub fn intersect_world(&self, ray: &Ray) -> Intersections<'_> {
+    pub fn intersect_world(&self, ray: &Ray) -> Intersections {
         let mut intersections = Intersections {
             intersections: vec![],
         };
-        for object in &self.objects {
-            let xs = object.intersect(&ray);
+        for (index, object) in self.objects.iter().enumerate() {
+            let xs = object.intersect(&ray, index);
             intersections.extend(xs);
         }
         intersections
     }
     pub fn shade_hit(&self, comps: Computations) -> Color {
+        let object = &self.objects[comps.object_id];
         let shadowed = self.is_shadowed(comps.over_point);
         match self.light.clone() {
             None => Color {
@@ -43,7 +44,7 @@ impl World {
                 b: 0.0,
             },
             Some(light) => lightning(
-                &comps.object.material,
+                &object.get_material(),
                 light,
                 comps.point,
                 comps.eyev,
@@ -60,7 +61,7 @@ impl World {
                 g: 0.0,
                 b: 0.0,
             },
-            Some(intersections) => self.shade_hit(intersections.prepare_computations(&ray)),
+            Some(intersection) => self.shade_hit(intersection.prepare_computations(&ray, self)),
         }
     }
     pub fn is_shadowed(&self, point: Point) -> bool {
@@ -100,8 +101,8 @@ impl Default for World {
                 b: 1.0,
             },
         });
-        let mut s1 = Sphere::unit();
-        let mut m1 = Material::default();
+        let mut s1 = Shape::sphere();
+        let mut m1: Material = Material::default();
         m1.set_color(Color {
             r: 0.8,
             g: 1.0,
@@ -109,11 +110,11 @@ impl Default for World {
         });
         m1.set_diffuse(0.7);
         m1.set_specular(0.2);
-        s1.set_material(&m1);
+        s1.set_material(m1);
 
-        let mut s2 = Sphere::unit();
+        let mut s2 = Shape::sphere();
         const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
-        s2.set_transform(&TRANSFORM);
+        s2.set_transform(TRANSFORM);
 
         World {
             objects: vec![s1, s2],
@@ -142,7 +143,7 @@ fn the_default_world() {
             b: 1.0,
         },
     });
-    let mut s1 = Sphere::unit();
+    let mut s1 = Shape::sphere();
     let mut m1 = Material::default();
     m1.set_color(Color {
         r: 0.8,
@@ -151,11 +152,11 @@ fn the_default_world() {
     });
     m1.set_diffuse(0.7);
     m1.set_specular(0.2);
-    s1.set_material(&m1);
+    s1.set_material(m1);
 
-    let mut s2 = Sphere::unit();
+    let mut s2 = Shape::sphere();
     const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
-    s2.set_transform(&TRANSFORM);
+    s2.set_transform(TRANSFORM);
 
     let w = World::default();
     assert_eq!(w.light, Some(light));
@@ -199,9 +200,8 @@ fn shading_an_intersection() {
             z: 1.0,
         },
     };
-    let shape = w.objects[0].clone();
-    let i = Intersection::new(4.0, &shape);
-    let comps = i.prepare_computations(&&r);
+    let i = Intersection::new(4.0, 0);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(
         w.shade_hit(comps),
         Color {
@@ -239,9 +239,8 @@ fn shading_an_intersection_from_the_inside() {
             z: 1.0,
         },
     };
-    let shape = w.objects[1].clone();
-    let i = Intersection::new(0.5, &shape);
-    let comps = i.prepare_computations(&&r);
+    let i = Intersection::new(0.5, 1);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(
         w.shade_hit(comps),
         Color {
@@ -304,8 +303,12 @@ fn the_color_when_a_ray_hits() {
 #[test]
 fn the_color_with_an_intersection_behind_the_ray() {
     let mut w = World::default();
-    w.objects[0].material.set_ambient(1.0);
-    w.objects[1].material.set_ambient(1.0);
+    let mut object_material0 = w.objects[0].get_material();
+    object_material0.set_ambient(1.0);
+    w.objects[0].set_material(object_material0);
+    let mut object_material1 = w.objects[1].get_material();
+    object_material1.set_ambient(1.0);
+    w.objects[1].set_material(object_material1);
 
     let r = Ray {
         origin: Point {
@@ -320,7 +323,7 @@ fn the_color_with_an_intersection_behind_the_ray() {
         },
     };
     let c = w.color_at(&r);
-    assert_eq!(c, w.objects[1].material.color);
+    assert_eq!(c, w.objects[1].get_material().color);
 }
 #[test]
 fn the_transformation_matrix_for_the_default_orientation() {
@@ -466,10 +469,10 @@ fn shade_hit_is_given_an_intersection_in_shadow() {
         },
     });
     w.light = Some(light);
-    let s1 = Sphere::unit();
+    let s1 = Shape::sphere();
     const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 10.0);
-    let mut s2 = Sphere::unit();
-    s2.set_transform(&TRANSFORM);
+    let mut s2 = Shape::sphere();
+    s2.set_transform(TRANSFORM);
     let r = Ray {
         origin: Point {
             x: 0.0,
@@ -484,9 +487,9 @@ fn shade_hit_is_given_an_intersection_in_shadow() {
     };
     let i = Intersection {
         t: 4.0,
-        object: &s2,
+        object_id: 1,
     };
-    let comps = i.prepare_computations(&r);
+    let comps = i.prepare_computations(&r, &w);
     w.objects.extend(vec![s1, s2.clone()]);
     let c = w.shade_hit(comps);
     assert_eq!(
@@ -512,14 +515,16 @@ fn the_hit_should_offset_the_point() {
             z: 0.0,
         },
     };
-    let mut shape = Sphere::unit();
+    let mut shape = Shape::sphere();
     const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 1.0);
-    shape.set_transform(&TRANSFORM);
+    shape.set_transform(TRANSFORM);
     let i = Intersection {
         t: 5.0,
-        object: &shape,
+        object_id: 0,
     };
-    let comps = i.prepare_computations(&r);
+    let mut w = World::new();
+    w.objects.append(&mut vec![shape]);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(comps.over_point.z() < -EPSILON / 2.0, true);
     assert_eq!(comps.point.z() > comps.over_point.z(), true);
 }

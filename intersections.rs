@@ -2,28 +2,30 @@ use std::ops::Index;
 
 use crate::intersections;
 use crate::rays::*;
-use crate::spheres::*;
+use crate::shapes::*;
 use crate::tuples::*;
+use crate::worlds::World;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Intersection<'a> {
+pub struct Intersection {
     pub t: f32,
-    pub object: &'a Sphere,
+    pub object_id: usize,
 }
-pub struct Computations<'a> {
+pub struct Computations {
     pub t: f32,
-    pub object: &'a Sphere,
+    pub object_id: usize,
     pub point: Point,
     pub eyev: Vector,
     pub normalv: Vector,
     pub inside: bool,
     pub over_point: Point,
 }
-impl<'a> Intersection<'a> {
-    pub fn prepare_computations(&self, ray: &Ray) -> Computations<'a> {
+impl Intersection {
+    pub fn prepare_computations(&self, ray: &Ray, world: &World) -> Computations {
         let point = ray.position(self.t);
         let mut inside = false;
-        let mut normalv = self.object.normal_at(&point);
+        let object = &world.objects[self.object_id];
+        let mut normalv = object.normal_at(&point);
         let eyev = -ray.direction.clone();
         if normalv.dot(&eyev) < 0.0 {
             inside = true;
@@ -32,7 +34,7 @@ impl<'a> Intersection<'a> {
         let over_point = point.clone() + normalv.clone() * EPSILON;
         Computations {
             t: self.t,
-            object: self.object,
+            object_id: self.object_id,
             point: point,
             eyev: eyev,
             normalv: normalv,
@@ -41,8 +43,8 @@ impl<'a> Intersection<'a> {
         }
     }
 }
-impl<'a> Eq for Intersection<'a> {}
-impl<'a> Ord for Intersection<'a> {
+impl Eq for Intersection {}
+impl Ord for Intersection {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.t < other.t {
             return std::cmp::Ordering::Less;
@@ -52,7 +54,7 @@ impl<'a> Ord for Intersection<'a> {
         std::cmp::Ordering::Equal
     }
 }
-impl<'a> PartialOrd for Intersection<'a> {
+impl PartialOrd for Intersection {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         if self.t < other.t {
             return Some(std::cmp::Ordering::Less);
@@ -64,18 +66,18 @@ impl<'a> PartialOrd for Intersection<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Intersections<'a> {
-    pub intersections: Vec<Intersection<'a>>,
+pub struct Intersections {
+    pub intersections: Vec<Intersection>,
 }
 
-impl<'a> Intersections<'a> {
-    pub fn new(xs: Vec<Intersection<'a>>) -> Self {
+impl Intersections {
+    pub fn new(xs: Vec<Intersection>) -> Self {
         let mut intersections = xs;
         intersections.sort();
         Self { intersections }
     }
 
-    pub fn hit(&self) -> Option<&Intersection<'a>> {
+    pub fn hit(&self) -> Option<&Intersection> {
         let mut result = None;
         for intersection in self.intersections.iter() {
             if intersection.t > 0.0 {
@@ -91,7 +93,7 @@ impl<'a> Intersections<'a> {
         }
         result
     }
-    pub fn extend(&mut self, mut other: Intersections<'a>) -> () {
+    pub fn extend(&mut self, mut other: Intersections) -> () {
         self.intersections.append(&mut other.intersections);
         self.intersections.sort();
     }
@@ -99,68 +101,68 @@ impl<'a> Intersections<'a> {
         self.intersections.len()
     }
 }
-impl<'a> Index<usize> for Intersections<'a> {
-    type Output = Intersection<'a>;
+impl Index<usize> for Intersections {
+    type Output = Intersection;
     fn index(&self, index: usize) -> &Self::Output {
         &self.intersections[index]
     }
 }
-impl<'a> Intersection<'a> {
-    pub const fn new(t: f32, object: &'a Sphere) -> Self {
-        Self { t, object }
+impl Intersection {
+    pub const fn new(t: f32, object_id: usize) -> Self {
+        Self { t, object_id }
     }
 }
 
 #[test]
 fn an_intersection_encapsulates_t_and_object() {
-    const S: Sphere = Sphere::unit();
-    let i = Intersection::new(3.5, &S);
+    const S: Shape = Shape::sphere();
+    let i = Intersection::new(3.5, 0);
     assert_eq!(i.t, 3.5);
-    assert_eq!(i.object, &S);
+    assert_eq!(i.object_id, 0);
 }
 #[test]
 fn aggregating_intersections() {
-    const S: Sphere = Sphere::unit();
-    let i1 = Intersection::new(1.0, &S);
-    let i2 = Intersection::new(2.0, &S);
+    const S: Shape = Shape::sphere();
+    let i1 = Intersection::new(1.0, 0);
+    let i2 = Intersection::new(2.0, 1);
     let xs = Intersections::new(vec![i1, i2]);
     assert_eq!(xs[0].t, 1.0);
     assert_eq!(xs[1].t, 2.0);
 }
 #[test]
 fn the_hit_when_all_intersections_have_positive_t() {
-    const S: Sphere = Sphere::unit();
-    let i1 = Intersection::new(1.0, &S);
-    let i2 = Intersection::new(2.0, &S);
+    const S: Shape = Shape::sphere();
+    let i1 = Intersection::new(1.0, 0);
+    let i2 = Intersection::new(2.0, 1);
     let xs = Intersections::new(vec![i2, i1]);
     let i = xs.hit();
     assert_eq!(i.unwrap(), &i1);
 }
 #[test]
 fn the_hit_when_some_intersections_have_negative_t() {
-    const S: Sphere = Sphere::unit();
-    let i1 = Intersection::new(-1.0, &S);
-    let i2 = Intersection::new(1.0, &S);
+    const S: Shape = Shape::sphere();
+    let i1 = Intersection::new(-1.0, 0);
+    let i2 = Intersection::new(1.0, 1);
     let xs = Intersections::new(vec![i2, i1]);
     let i = xs.hit();
     assert_eq!(i.unwrap(), &i2);
 }
 #[test]
 fn the_hit_when_all_intersections_have_negative_t() {
-    const S: Sphere = Sphere::unit();
-    let i1 = Intersection::new(-2.0, &S);
-    let i2 = Intersection::new(-1.0, &S);
+    const S: Shape = Shape::sphere();
+    let i1 = Intersection::new(-2.0, 0);
+    let i2 = Intersection::new(-1.0, 1);
     let xs = Intersections::new(vec![i2, i1]);
     let i = xs.hit();
     assert_eq!(i, None);
 }
 #[test]
 fn the_hit_is_always_the_lowest_nonnegative_intersection() {
-    const S: Sphere = Sphere::unit();
-    let i1 = Intersection::new(5.0, &S);
-    let i2 = Intersection::new(7.0, &S);
-    let i3 = Intersection::new(-3.0, &S);
-    let i4 = Intersection::new(2.0, &S);
+    const S: Shape = Shape::sphere();
+    let i1 = Intersection::new(5.0, 0);
+    let i2 = Intersection::new(7.0, 1);
+    let i3 = Intersection::new(-3.0, 2);
+    let i4 = Intersection::new(2.0, 3);
     let xs = Intersections::new(vec![i1, i2, i3, i4]);
     let i = xs.hit();
     assert_eq!(i.unwrap(), &i4);
@@ -179,11 +181,13 @@ fn precomputing_the_state_of_an_intersection() {
             z: 1.0,
         },
     };
-    let shape = Sphere::unit();
-    let i = Intersection::new(4.0, &shape);
-    let comps = i.prepare_computations(&r);
+    let mut w = World::new();
+    let shape = Shape::sphere();
+    w.objects.append(&mut vec![shape]);
+    let i = Intersection::new(4.0, 0);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(comps.t, i.t);
-    assert_eq!(comps.object, i.object);
+    assert_eq!(comps.object_id, i.object_id);
     assert_eq!(
         comps.point,
         Point {
@@ -223,9 +227,11 @@ fn the_hit_when_an_intersection_occurs_on_the_outside() {
             z: 1.0,
         },
     };
-    let shape = Sphere::unit();
-    let i = Intersection::new(4.0, &shape);
-    let comps = i.prepare_computations(&r);
+    let shape = Shape::sphere();
+    let i = Intersection::new(4.0, 0);
+    let mut w = World::new();
+    w.objects.append(&mut vec![shape]);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(comps.inside, false);
 }
 #[test]
@@ -242,9 +248,11 @@ fn the_hit_when_an_intersection_occurs_on_the_inside() {
             z: 1.0,
         },
     };
-    let shape = Sphere::unit();
-    let i = Intersection::new(1.0, &shape);
-    let comps = i.prepare_computations(&r);
+    let shape = Shape::sphere();
+    let i = Intersection::new(1.0, 0);
+    let mut w = World::new();
+    w.objects.append(&mut vec![shape]);
+    let comps = i.prepare_computations(&r, &w);
     assert_eq!(
         comps.point,
         Point {

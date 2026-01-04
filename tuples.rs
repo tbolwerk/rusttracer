@@ -1,4 +1,4 @@
-pub const EPSILON: f32 = 0.001;
+pub const EPSILON: f32 = 0.01;
 
 use std::ops::Add;
 use std::ops::Div;
