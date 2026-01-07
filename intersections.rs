@@ -26,12 +26,12 @@ impl Intersection {
         let mut inside = false;
         let object = &world.objects[self.object_id];
         let mut normalv = object.normal_at(&point);
-        let eyev = -ray.direction.clone();
-        if normalv.dot(&eyev) < 0.0 {
+        let eyev = -ray.direction;
+        if normalv.dot(eyev) < 0.0 {
             inside = true;
             normalv = -normalv;
         }
-        let over_point = point.clone() + normalv.clone() * EPSILON;
+        let over_point = point + normalv * EPSILON;
         Computations {
             t: self.t,
             object_id: self.object_id,

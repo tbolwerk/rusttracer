@@ -68,7 +68,7 @@ impl World {
         match self.light.clone() {
             None => true,
             Some(light) => {
-                let v = light.position() - point.clone();
+                let v = light.position() - point;
                 let distance = v.magnitude();
                 let direction = v.normalize();
 

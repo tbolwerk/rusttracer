@@ -69,11 +69,11 @@ impl HasMaterial for Sphere {
 
 impl Intersects for Sphere {
     fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
-        let sphere_to_ray = ray.origin.clone() - self.origin.clone();
+        let sphere_to_ray = ray.origin - self.origin;
 
-        let a = ray.direction.dot(&ray.direction);
-        let b = 2.0 * ray.direction.dot(&sphere_to_ray);
-        let c = sphere_to_ray.dot(&sphere_to_ray) - 1.0;
+        let a = ray.direction.dot(ray.direction);
+        let b = 2.0 * ray.direction.dot(sphere_to_ray);
+        let c = sphere_to_ray.dot(sphere_to_ray) - 1.0;
 
         let discriminant = b.powi(2) - 4.0 * a * c;
 

@@ -279,8 +279,8 @@ fn chapter6() {
                 z: wall_z,
             };
             let ray = Ray {
-                origin: ray_origin.clone(),
-                direction: (current_position - ray_origin.clone()).normalize(),
+                origin: ray_origin,
+                direction: (current_position - ray_origin).normalize(),
             };
             let xs = sphere.intersect(&ray, 0);
             match xs.hit() {
@@ -342,8 +342,8 @@ fn chapter5() {
             };
 
             let r = Ray {
-                origin: ray_origin.clone(),
-                direction: (position - ray_origin.clone()).normalize(),
+                origin: ray_origin,
+                direction: (position - ray_origin).normalize(),
             };
             let xs = shape.intersect(&r,0);
 
@@ -390,7 +390,7 @@ fn chapter4() -> Result<(), ()> {
 
     // Iterate over compile-time calculated transform matrix
     for transform in HOURS.iter() {
-        let p = *transform * start.clone();
+        let p = *transform * start;
         let x = p.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
         let z = p.z().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
         c.set(Pixel::white(), x, z);
@@ -430,7 +430,7 @@ impl Environment {
 }
 
 fn tick(env: Environment, proj: Projectile) -> Projectile {
-    let position = proj.position + proj.velocity.clone();
+    let position = proj.position + proj.velocity;
     let velocity = proj.velocity + env.gravity + env.wind;
     Projectile::new(position, velocity)
 }
@@ -463,8 +463,8 @@ fn chapter1() -> std::io::Result<()> {
     );
 
     let mut positions: Vec<Point> = vec![];
-    while p.position.clone().y() > 0.0 {
-        positions.push(p.position.clone());
+    while p.position.y() > 0.0 {
+        positions.push(p.position);
         p = tick(e.clone(), p);
     }
 

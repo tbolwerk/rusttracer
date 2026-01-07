@@ -38,19 +38,19 @@ pub trait Tuple {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,
     pub z: f32,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
     pub z: f32,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -245,28 +245,28 @@ impl Div<f32> for Vector {
 }
 
 impl Vector {
-    pub fn magnitude(&self) -> f32 {
+    pub fn magnitude(self) -> f32 {
         (self.x().powi(2) + self.y().powi(2) + self.z().powi(2)).sqrt()
     }
-    pub fn normalize(&self) -> Vector {
+    pub fn normalize(self) -> Vector {
         Vector {
             x: self.x() / self.magnitude(),
             y: self.y() / self.magnitude(),
             z: self.z() / self.magnitude(),
         }
     }
-    pub fn dot(&self, other: &Vector) -> f32 {
+    pub fn dot(self, other: Vector) -> f32 {
         self.x() * other.x() + self.y() * other.y() + self.z() * other.z()
     }
-    pub fn cross(&self, other: &Vector) -> Vector {
+    pub fn cross(self, other: Vector) -> Vector {
         Vector {
             x: self.y() * other.z() - self.z() * other.y(),
             y: self.z() * other.x() - self.x() * other.z(),
             z: self.x() * other.y() - self.y() * other.x(),
         }
     }
-    pub fn reflect(&self, normal: &Vector) -> Vector {
-        self.clone() - (normal.clone() * (2.0_f32 * self.dot(&normal)))
+    pub fn reflect(self, normal: Vector) -> Vector {
+        self - (normal * (2.0_f32 * self.dot(normal)))
     }
 }
 
@@ -658,7 +658,7 @@ mod tests {
             y: 3.0,
             z: 4.0,
         };
-        assert_eq!(a.dot(&b), 20.0);
+        assert_eq!(a.dot(b), 20.0);
     }
     #[test]
     fn the_cross_product_of_two_vectors() {
@@ -673,7 +673,7 @@ mod tests {
             z: 4.0,
         };
         assert_eq!(
-            a.cross(&b),
+            a.cross(b),
             Vector {
                 x: -1.0,
                 y: 2.0,
@@ -681,7 +681,7 @@ mod tests {
             }
         );
         assert_eq!(
-            b.cross(&a),
+            b.cross(a),
             Vector {
                 x: 1.0,
                 y: -2.0,
@@ -701,7 +701,7 @@ mod tests {
             y: 1.0,
             z: 0.0,
         };
-        let r = v.reflect(&n);
+        let r = v.reflect(n);
         assert_eq!(
             r,
             Vector {
@@ -723,7 +723,7 @@ mod tests {
             y: 2.0_f32.sqrt() / 2.0,
             z: 0.0,
         };
-        let r = v.reflect(&n);
+        let r = v.reflect(n);
         assert_eq!(
             r,
             Vector {

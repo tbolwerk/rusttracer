@@ -71,7 +71,7 @@ pub fn lightning(
         return ambient;
     }
 
-    let light_dot_normal = lightv.dot(&normalv);
+    let light_dot_normal = lightv.dot(normalv);
     let mut diffuse = Color {
         r: 0.0,
         g: 0.0,
@@ -84,8 +84,8 @@ pub fn lightning(
     };
     if light_dot_normal >= 0.0 {
         diffuse = effective_color * material.diffuse * light_dot_normal;
-        let reflectv = (-lightv).reflect(&normalv);
-        let reflect_dot_eye = reflectv.dot(&eyev);
+        let reflectv = (-lightv).reflect(normalv);
+        let reflect_dot_eye = reflectv.dot(eyev);
         if reflect_dot_eye > 0.0 {
             let factor = reflect_dot_eye.powf(material.shininess);
             specular = light.intensity() * material.specular * factor;

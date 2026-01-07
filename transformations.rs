@@ -99,9 +99,9 @@ pub const fn shearing(x_y: f32, x_z: f32, y_x: f32, y_z: f32, z_x: f32, z_y: f32
 }
 
 pub fn view_transform(from: Point, to: Point, up: Vector) -> Matrix<4, 4> {
-    let forwardv = (to - from.clone()).normalize();
-    let leftv = forwardv.cross(&up.normalize());
-    let true_up = leftv.cross(&forwardv);
+    let forwardv = (to - from).normalize();
+    let leftv = forwardv.cross(up.normalize());
+    let true_up = leftv.cross(forwardv);
     let orientation = Matrix::new([
         [leftv.x(), leftv.y(), leftv.z(), 0.0],
         [true_up.x(), true_up.y(), true_up.z(), 0.0],
@@ -156,7 +156,7 @@ mod tests {
             y: 4.0,
             z: 5.0,
         };
-        assert_eq!(TRANSFORM * v.clone(), v);
+        assert_eq!(TRANSFORM * v, v);
     }
     #[test]
     fn a_scaling_matrix_applied_to_a_point() {
@@ -237,7 +237,7 @@ mod tests {
         const HALF_QUARTER: Matrix<4, 4> = rotation_x(PI / 4.0);
         const FULL_QUARTER: Matrix<4, 4> = rotation_x(PI / 2.0);
         assert_eq!(
-            HALF_QUARTER * p.clone(),
+            HALF_QUARTER * p,
             Point {
                 x: 0.0,
                 y: (2.0_f32).sqrt() / 2.0,
@@ -281,7 +281,7 @@ mod tests {
         const HALF_QUARTER: Matrix<4, 4> = rotation_y(PI / 4.0);
         const FULL_QUARTER: Matrix<4, 4> = rotation_y(PI / 2.0);
         assert_eq!(
-            HALF_QUARTER * p.clone(),
+            HALF_QUARTER * p,
             Point {
                 x: (2.0_f32).sqrt() / 2.0,
                 y: 0.0,
@@ -307,7 +307,7 @@ mod tests {
         const HALF_QUARTER: Matrix<4, 4> = rotation_z(PI / 4.0);
         const FULL_QUARTER: Matrix<4, 4> = rotation_z(PI / 2.0);
         assert_eq!(
-            HALF_QUARTER * p.clone(),
+            HALF_QUARTER * p,
             Point {
                 x: -1.0 * (2.0_f32).sqrt() / 2.0,
                 y: (2.0_f32).sqrt() / 2.0,

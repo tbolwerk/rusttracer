@@ -26,22 +26,22 @@ pub trait LightProperties {
 
 impl LightProperties for PointLight {
     fn position(&self) -> Point {
-        self.position.clone()
+        self.position
     }
     fn intensity(&self) -> Color {
-        self.intensity.clone()
+        self.intensity
     }
 }
 
 impl LightProperties for Light {
     fn position(&self) -> Point {
         match self {
-            Light::Point(light) => light.position.clone(),
+            Light::Point(light) => light.position,
         }
     }
     fn intensity(&self) -> Color {
         match self {
-            Light::Point(light) => light.intensity.clone(),
+            Light::Point(light) => light.intensity,
         }
     }
 }
@@ -61,8 +61,8 @@ mod tests {
             z: 0.0,
         };
         let light = Light::Point(PointLight {
-            position: position.clone(),
-            intensity: intensity.clone(),
+            position: position,
+            intensity: intensity,
         });
         assert_eq!(light.position(), position);
         assert_eq!(light.intensity(), intensity);

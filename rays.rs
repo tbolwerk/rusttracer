@@ -7,12 +7,12 @@ pub struct Ray {
 
 impl Ray {
     pub fn position(&self, t: f32) -> Point {
-        self.origin.clone() + self.direction.clone() * t
+        self.origin + self.direction * t
     }
     pub fn transform(&self, t: Matrix<4, 4>) -> Self {
         Self {
-            origin: t * self.origin.clone(),
-            direction: t * self.direction.clone(),
+            origin: t * self.origin,
+            direction: t * self.direction,
         }
     }
 }
@@ -31,8 +31,8 @@ mod tests {
             z: 6.0,
         };
         let r = Ray {
-            origin: origin.clone(),
-            direction: direction.clone(),
+            origin: origin,
+            direction: direction,
         };
         assert_eq!(r.origin, origin);
         assert_eq!(r.direction, direction);
