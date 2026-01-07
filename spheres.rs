@@ -69,19 +69,10 @@ impl HasMaterial for Sphere {
 
 impl Intersects for Sphere {
     fn local_normal_at(&self, point: &Point) -> Vector {
-         match self.inverse_transform {
-            None => (point.clone() - self.origin.clone()).normalize(),
-            Some(inv) => {
-                let object_point = inv * point.clone();
-                let object_normal = object_point - Point::default();
-                let mut world_normal = transpose(&inv) * object_normal;
-                world_normal.set(3, 0.0);
-                world_normal.normalize()
-            }
-        }
+        let object_normal:Vector = point.clone() - Point::default();
+        object_normal
     }
     fn local_intersect(& self, ray: &Ray, object_id: usize) -> Intersections {
- 
         let sphere_to_ray = ray.origin.clone() - self.origin.clone();
 
         let a = ray.direction.dot(&ray.direction);
@@ -348,9 +339,9 @@ fn the_normal_is_a_normalized_vector() {
 }
 #[test]
 fn computing_the_normal_on_a_translated_sphere() {
-    let mut s = Sphere::unit();
+    let mut s = Shape::sphere();
     s.set_transform(translation(0.0, 1.0, 0.0));
-    let n = s.local_normal_at(&Point {
+    let n = s.normal_at(&Point {
         x: 0.0,
         y: 1.70711,
         z: -0.70711,
@@ -366,12 +357,12 @@ fn computing_the_normal_on_a_translated_sphere() {
 }
 #[test]
 fn computing_the_normal_on_a_transformed_sphere() {
-    let mut s = Sphere::unit();
+    let mut s = Shape::sphere();
     const M: Matrix<4, 4> = Matrix::identity()
         .then(rotation_z(PI / 5.0))
         .then(scaling(1.0, 0.5, 1.0));
     s.set_transform(M);
-    let n = s.local_normal_at(&Point {
+    let n = s.normal_at(&Point {
         x: 0.0,
         y: 2.0_f32.sqrt() / 2.0,
         z: -2.0_f32.sqrt() / 2.0,
