@@ -120,214 +120,218 @@ fn background() -> (Material, Point) {
     (m, position)
 }
 
-#[test]
-fn lightning_with_the_eye_between_the_light_and_the_surface() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lightning_with_the_eye_between_the_light_and_the_surface() {
+        let (m, position) = background();
+        let eyev = Vector {
             x: 0.0,
             y: 0.0,
-            z: -10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let result = lightning(&m, light, position, eyev, normalv, false);
-    assert_eq!(
-        result,
-        Color {
-            r: 1.9,
-            g: 1.9,
-            b: 1.9
-        }
-    );
-}
-#[test]
-fn lightning_with_the_eye_between_the_light_and_the_surface_eye_offset_45_degrees() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: 2.0_f32.sqrt() / 2.0,
-        z: 2.0_f32.sqrt() / 2.0,
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
+            z: -1.0,
+        };
+        let normalv = Vector {
             x: 0.0,
             y: 0.0,
-            z: -10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let result = lightning(&m, light, position, eyev, normalv, false);
-    assert_eq!(
-        result,
-        Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0
-        }
-    );
-}
-#[test]
-fn lightning_with_eye_opposite_surface_light_offset_45_degrees() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let result = lightning(&m, light, position, eyev, normalv, false);
+        assert_eq!(
+            result,
+            Color {
+                r: 1.9,
+                g: 1.9,
+                b: 1.9
+            }
+        );
+    }
+    #[test]
+    fn lightning_with_the_eye_between_the_light_and_the_surface_eye_offset_45_degrees() {
+        let (m, position) = background();
+        let eyev = Vector {
             x: 0.0,
-            y: 10.0,
-            z: -10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let result = lightning(&m, light, position, eyev, normalv, false);
-    assert_eq!(
-        result,
-        Color {
-            r: 0.7364,
-            g: 0.7364,
-            b: 0.7364
-        }
-    );
-}
-#[test]
-fn lightning_with_eye_in_the_path_of_the_reflection_vector() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: -(2.0_f32.sqrt() / 2.0),
-        z: -(2.0_f32.sqrt() / 2.0),
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
-            x: 0.0,
-            y: 10.0,
-            z: -10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let result = lightning(&m, light, position, eyev, normalv, false);
-    assert_eq!(
-        result,
-        Color {
-            r: 1.6364,
-            g: 1.6364,
-            b: 1.6364
-        }
-    );
-}
-#[test]
-fn lightning_with_the_light_behind_the_surface() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
+            y: 2.0_f32.sqrt() / 2.0,
+            z: 2.0_f32.sqrt() / 2.0,
+        };
+        let normalv = Vector {
             x: 0.0,
             y: 0.0,
-            z: 10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let result = lightning(&m, light, position, eyev, normalv, false);
-    assert_eq!(
-        result,
-        Color {
-            r: 0.1,
-            g: 0.1,
-            b: 0.1
-        }
-    );
-}
-#[test]
-fn lighting_with_the_surface_in_shadow() {
-    let (m, position) = background();
-    let eyev = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-    let normalv = Vector {
-        x: 0.0,
-        y: 0.0,
-        z: -1.0,
-    };
-    let light = Light::Point(PointLight {
-        position: Point {
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let result = lightning(&m, light, position, eyev, normalv, false);
+        assert_eq!(
+            result,
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0
+            }
+        );
+    }
+    #[test]
+    fn lightning_with_eye_opposite_surface_light_offset_45_degrees() {
+        let (m, position) = background();
+        let eyev = Vector {
             x: 0.0,
             y: 0.0,
-            z: -10.0,
-        },
-        intensity: Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    });
-    let in_shadow = true;
-    let result = lightning(&m, light, position, eyev, normalv, in_shadow);
-    assert_eq!(
-        Color {
-            r: 0.1,
-            g: 0.1,
-            b: 0.1
-        },
-        result
-    );
+            z: -1.0,
+        };
+        let normalv = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 10.0,
+                z: -10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let result = lightning(&m, light, position, eyev, normalv, false);
+        assert_eq!(
+            result,
+            Color {
+                r: 0.7364,
+                g: 0.7364,
+                b: 0.7364
+            }
+        );
+    }
+    #[test]
+    fn lightning_with_eye_in_the_path_of_the_reflection_vector() {
+        let (m, position) = background();
+        let eyev = Vector {
+            x: 0.0,
+            y: -(2.0_f32.sqrt() / 2.0),
+            z: -(2.0_f32.sqrt() / 2.0),
+        };
+        let normalv = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 10.0,
+                z: -10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let result = lightning(&m, light, position, eyev, normalv, false);
+        assert_eq!(
+            result,
+            Color {
+                r: 1.6364,
+                g: 1.6364,
+                b: 1.6364
+            }
+        );
+    }
+    #[test]
+    fn lightning_with_the_light_behind_the_surface() {
+        let (m, position) = background();
+        let eyev = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let normalv = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let result = lightning(&m, light, position, eyev, normalv, false);
+        assert_eq!(
+            result,
+            Color {
+                r: 0.1,
+                g: 0.1,
+                b: 0.1
+            }
+        );
+    }
+    #[test]
+    fn lighting_with_the_surface_in_shadow() {
+        let (m, position) = background();
+        let eyev = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let normalv = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let light = Light::Point(PointLight {
+            position: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -10.0,
+            },
+            intensity: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        });
+        let in_shadow = true;
+        let result = lightning(&m, light, position, eyev, normalv, in_shadow);
+        assert_eq!(
+            Color {
+                r: 0.1,
+                g: 0.1,
+                b: 0.1
+            },
+            result
+        );
+    }
 }

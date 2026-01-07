@@ -75,94 +75,99 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         image
     }
 }
-#[test]
-fn constructing_a_camera() {
-    const HSIZE: usize = 160;
-    const VSIZE: usize = 120;
-    let field_of_view = PI / 2.0;
-    let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
-    assert_eq!(c.field_of_view, field_of_view);
-    assert_eq!(c.transform, Matrix::identity());
-}
-#[test]
-fn the_pixel_size_for_a_horizontal_canvas() {
-    const HSIZE: usize = 200;
-    const VSIZE: usize = 125;
-    let field_of_view = PI / 2.0;
-    let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
-    assert_eq!(c.pixel_size, 0.01);
-}
-#[test]
-fn the_pixel_size_for_a_vertical_canvas() {
-    const HSIZE: usize = 125;
-    const VSIZE: usize = 200;
-    let field_of_view = PI / 2.0;
-    let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
-    assert_eq!(c.pixel_size, 0.01);
-}
-#[test]
-fn constructing_a_ray_through_the_center_of_the_canvas() {
-    let c: Camera<201, 101> = Camera::new(PI / 2.0);
-    let r = c.ray_for_pixel(100, 50);
-    assert_eq!(
-        r.origin,
-        Point {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0
-        }
-    );
-    assert_eq!(
-        r.direction,
-        Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
-}
-#[test]
-fn constructing_a_ray_through_the_corner_of_the_canvas() {
-    let c: Camera<201, 101> = Camera::new(PI / 2.0);
-    let r = c.ray_for_pixel(0, 0);
-    assert_eq!(
-        r.origin,
-        Point {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0
-        }
-    );
-    assert_eq!(
-        r.direction,
-        Vector {
-            x: 0.66519,
-            y: 0.33259,
-            z: -0.66851
-        }
-    )
-}
-#[test]
-fn constructing_a_ray_when_the_camera_is_transformed() {
-    let mut c: Camera<201, 101> = Camera::new(PI / 2.0);
-    c.set_transform(rotation_y(PI / 4.0) * translation(0.0, -2.0, 5.0));
 
-    let r = c.ray_for_pixel(100, 50);
+mod tests {
+    use super::*;
 
-    assert_eq!(
-        r.origin,
-        Point {
-            x: 0.0,
-            y: 2.0,
-            z: -5.0
-        }
-    );
-    assert_eq!(
-        r.direction,
-        Vector {
-            x: 2.0_f32.sqrt() / 2.0,
-            y: 0.0,
-            z: -2.0_f32.sqrt() / 2.0,
-        }
-    )
+    #[test]
+    fn constructing_a_camera() {
+        const HSIZE: usize = 160;
+        const VSIZE: usize = 120;
+        let field_of_view = PI / 2.0;
+        let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
+        assert_eq!(c.field_of_view, field_of_view);
+        assert_eq!(c.transform, Matrix::identity());
+    }
+    #[test]
+    fn the_pixel_size_for_a_horizontal_canvas() {
+        const HSIZE: usize = 200;
+        const VSIZE: usize = 125;
+        let field_of_view = PI / 2.0;
+        let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
+        assert_eq!(c.pixel_size, 0.01);
+    }
+    #[test]
+    fn the_pixel_size_for_a_vertical_canvas() {
+        const HSIZE: usize = 125;
+        const VSIZE: usize = 200;
+        let field_of_view = PI / 2.0;
+        let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
+        assert_eq!(c.pixel_size, 0.01);
+    }
+    #[test]
+    fn constructing_a_ray_through_the_center_of_the_canvas() {
+        let c: Camera<201, 101> = Camera::new(PI / 2.0);
+        let r = c.ray_for_pixel(100, 50);
+        assert_eq!(
+            r.origin,
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0
+            }
+        );
+        assert_eq!(
+            r.direction,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+    }
+    #[test]
+    fn constructing_a_ray_through_the_corner_of_the_canvas() {
+        let c: Camera<201, 101> = Camera::new(PI / 2.0);
+        let r = c.ray_for_pixel(0, 0);
+        assert_eq!(
+            r.origin,
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0
+            }
+        );
+        assert_eq!(
+            r.direction,
+            Vector {
+                x: 0.66519,
+                y: 0.33259,
+                z: -0.66851
+            }
+        )
+    }
+    #[test]
+    fn constructing_a_ray_when_the_camera_is_transformed() {
+        let mut c: Camera<201, 101> = Camera::new(PI / 2.0);
+        c.set_transform(rotation_y(PI / 4.0) * translation(0.0, -2.0, 5.0));
+
+        let r = c.ray_for_pixel(100, 50);
+
+        assert_eq!(
+            r.origin,
+            Point {
+                x: 0.0,
+                y: 2.0,
+                z: -5.0
+            }
+        );
+        assert_eq!(
+            r.direction,
+            Vector {
+                x: 2.0_f32.sqrt() / 2.0,
+                y: 0.0,
+                z: -2.0_f32.sqrt() / 2.0,
+            }
+        )
+    }
 }

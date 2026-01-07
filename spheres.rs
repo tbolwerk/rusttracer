@@ -47,7 +47,7 @@ impl Sphere {
 
 impl HasTransform for Sphere {
     fn get_transform(&self) -> Matrix<4, 4> {
-       self.transform
+        self.transform
     }
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
         self.inverse_transform
@@ -69,10 +69,10 @@ impl HasMaterial for Sphere {
 
 impl Intersects for Sphere {
     fn local_normal_at(&self, point: &Point) -> Vector {
-        let object_normal:Vector = point.clone() - Point::default();
+        let object_normal: Vector = point.clone() - Point::default();
         object_normal
     }
-    fn local_intersect(& self, ray: &Ray, object_id: usize) -> Intersections {
+    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
         let sphere_to_ray = ray.origin.clone() - self.origin.clone();
 
         let a = ray.direction.dot(&ray.direction);
@@ -94,299 +94,303 @@ impl Intersects for Sphere {
     }
 }
 
-#[test]
-fn a_ray_intersects_a_sphere_at_two_points() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    assert_eq!(xs[0].t, 4.0);
-    assert_eq!(xs[1].t, 6.0);
-}
-#[test]
-fn a_ray_intersects_a_sphere_at_a_tangent() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 1.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    assert_eq!(xs[0].t, 5.0);
-    assert_eq!(xs[1].t, 5.0);
-}
-#[test]
-fn a_ray_misses_a_sphere() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 2.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    assert_eq!(xs.count(), 0);
-}
-#[test]
-fn a_ray_originates_inside_a_sphere() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    assert_eq!(xs[0].t, -1.0);
-    assert_eq!(xs[1].t, 1.0);
-}
-#[test]
-fn a_sphere_is_behind_a_ray() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: 5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    assert_eq!(xs[0].t, -6.0);
-    assert_eq!(xs[1].t, -4.0);
-}
-#[test]
-fn intersect_sets_the_object_on_the_intersection() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    const S: Sphere = Sphere::unit();
-    let xs = S.local_intersect(&R,0);
-    Intersections::new(vec![xs[0], xs[1]]);
-    assert_eq!(xs[0].object_id, 0);
-}
-#[test]
-fn a_spheres_default_transformation() {
-    const S: Sphere = Sphere::unit();
-    assert_eq!(S.transform, Matrix::identity());
-}
-#[test]
-fn changing_a_spheres_transformation() {
-    let mut s: Sphere = Sphere::unit();
-    const T: Matrix<4, 4> = translation(2.0, 3.0, 4.0);
-    s.set_transform(T);
-    assert_eq!(s.transform, T);
-}
-#[test]
-fn intersecting_a_scaled_sphere_with_a_ray() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    let mut s = Shape::sphere();
-    s.set_transform(scaling(2.0, 2.0, 2.0));
-    let xs = s.intersect(&R, 0);
-    assert_eq!(xs.count(), 2);
-    assert_eq!(xs[0].t, 3.0);
-    assert_eq!(xs[1].t, 7.0);
-}
-#[test]
-fn intersecting_a_translated_sphere_with_a_ray() {
-    const R: Ray = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    let mut s = Shape::sphere();
-    s.set_transform(translation(5.0, 0.0, 0.0));
-    let xs = s.intersect(&R, 0);
-    assert_eq!(xs.count(), 0);
-}
-#[test]
-fn the_normal_on_a_sphere_at_a_point_on_the_x_axis() {
-    let s = Sphere::unit();
-    let n = s.local_normal_at(&Point {
-        x: 1.0,
-        y: 0.0,
-        z: 0.0,
-    });
-    assert_eq!(
-        n,
-        Vector {
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ray_intersects_a_sphere_at_two_points() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        assert_eq!(xs[0].t, 4.0);
+        assert_eq!(xs[1].t, 6.0);
+    }
+    #[test]
+    fn a_ray_intersects_a_sphere_at_a_tangent() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 1.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        assert_eq!(xs[0].t, 5.0);
+        assert_eq!(xs[1].t, 5.0);
+    }
+    #[test]
+    fn a_ray_misses_a_sphere() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 2.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        assert_eq!(xs.count(), 0);
+    }
+    #[test]
+    fn a_ray_originates_inside_a_sphere() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        assert_eq!(xs[0].t, -1.0);
+        assert_eq!(xs[1].t, 1.0);
+    }
+    #[test]
+    fn a_sphere_is_behind_a_ray() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        assert_eq!(xs[0].t, -6.0);
+        assert_eq!(xs[1].t, -4.0);
+    }
+    #[test]
+    fn intersect_sets_the_object_on_the_intersection() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        const S: Sphere = Sphere::unit();
+        let xs = S.local_intersect(&R, 0);
+        Intersections::new(vec![xs[0], xs[1]]);
+        assert_eq!(xs[0].object_id, 0);
+    }
+    #[test]
+    fn a_spheres_default_transformation() {
+        const S: Sphere = Sphere::unit();
+        assert_eq!(S.transform, Matrix::identity());
+    }
+    #[test]
+    fn changing_a_spheres_transformation() {
+        let mut s: Sphere = Sphere::unit();
+        const T: Matrix<4, 4> = translation(2.0, 3.0, 4.0);
+        s.set_transform(T);
+        assert_eq!(s.transform, T);
+    }
+    #[test]
+    fn intersecting_a_scaled_sphere_with_a_ray() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let mut s = Shape::sphere();
+        s.set_transform(scaling(2.0, 2.0, 2.0));
+        let xs = s.intersect(&R, 0);
+        assert_eq!(xs.count(), 2);
+        assert_eq!(xs[0].t, 3.0);
+        assert_eq!(xs[1].t, 7.0);
+    }
+    #[test]
+    fn intersecting_a_translated_sphere_with_a_ray() {
+        const R: Ray = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let mut s = Shape::sphere();
+        s.set_transform(translation(5.0, 0.0, 0.0));
+        let xs = s.intersect(&R, 0);
+        assert_eq!(xs.count(), 0);
+    }
+    #[test]
+    fn the_normal_on_a_sphere_at_a_point_on_the_x_axis() {
+        let s = Sphere::unit();
+        let n = s.local_normal_at(&Point {
             x: 1.0,
             y: 0.0,
-            z: 0.0
-        }
-    );
-}
-#[test]
-fn the_normal_on_a_sphere_at_a_point_on_the_y_axis() {
-    let s = Sphere::unit();
-    let n = s.local_normal_at(&Point {
-        x: 0.0,
-        y: 1.0,
-        z: 0.0,
-    });
-    assert_eq!(
-        n,
-        Vector {
+            z: 0.0,
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0
+            }
+        );
+    }
+    #[test]
+    fn the_normal_on_a_sphere_at_a_point_on_the_y_axis() {
+        let s = Sphere::unit();
+        let n = s.local_normal_at(&Point {
             x: 0.0,
             y: 1.0,
-            z: 0.0
-        }
-    );
-}
-#[test]
-fn the_normal_on_a_sphere_at_a_point_on_the_z_axis() {
-    let s = Sphere::unit();
-    let n = s.local_normal_at(&Point {
-        x: 0.0,
-        y: 0.0,
-        z: 1.0,
-    });
-    assert_eq!(
-        n,
-        Vector {
+            z: 0.0,
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0
+            }
+        );
+    }
+    #[test]
+    fn the_normal_on_a_sphere_at_a_point_on_the_z_axis() {
+        let s = Sphere::unit();
+        let n = s.local_normal_at(&Point {
             x: 0.0,
             y: 0.0,
-            z: 1.0
-        }
-    );
-}
-#[test]
-fn the_normal_on_a_sphere_at_a_nonaxial_point() {
-    let s = Sphere::unit();
-    let n = s.local_normal_at(&Point {
-        x: 3.0_f32.sqrt() / 3.0,
-        y: 3.0_f32.sqrt() / 3.0,
-        z: 3.0_f32.sqrt() / 3.0,
-    });
-    assert_eq!(
-        n,
-        Vector {
+            z: 1.0,
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0
+            }
+        );
+    }
+    #[test]
+    fn the_normal_on_a_sphere_at_a_nonaxial_point() {
+        let s = Sphere::unit();
+        let n = s.local_normal_at(&Point {
             x: 3.0_f32.sqrt() / 3.0,
             y: 3.0_f32.sqrt() / 3.0,
             z: 3.0_f32.sqrt() / 3.0,
-        }
-    );
-}
-#[test]
-fn the_normal_is_a_normalized_vector() {
-    let s = Sphere::unit();
-    let n = s.local_normal_at(&Point {
-        x: 3.0_f32.sqrt() / 3.0,
-        y: 3.0_f32.sqrt() / 3.0,
-        z: 3.0_f32.sqrt() / 3.0,
-    });
-    assert_eq!(n, n.normalize());
-}
-#[test]
-fn computing_the_normal_on_a_translated_sphere() {
-    let mut s = Shape::sphere();
-    s.set_transform(translation(0.0, 1.0, 0.0));
-    let n = s.normal_at(&Point {
-        x: 0.0,
-        y: 1.70711,
-        z: -0.70711,
-    });
-    assert_eq!(
-        n,
-        Vector {
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 3.0_f32.sqrt() / 3.0,
+                y: 3.0_f32.sqrt() / 3.0,
+                z: 3.0_f32.sqrt() / 3.0,
+            }
+        );
+    }
+    #[test]
+    fn the_normal_is_a_normalized_vector() {
+        let s = Sphere::unit();
+        let n = s.local_normal_at(&Point {
+            x: 3.0_f32.sqrt() / 3.0,
+            y: 3.0_f32.sqrt() / 3.0,
+            z: 3.0_f32.sqrt() / 3.0,
+        });
+        assert_eq!(n, n.normalize());
+    }
+    #[test]
+    fn computing_the_normal_on_a_translated_sphere() {
+        let mut s = Shape::sphere();
+        s.set_transform(translation(0.0, 1.0, 0.0));
+        let n = s.normal_at(&Point {
             x: 0.0,
-            y: 0.70711,
-            z: -0.70711
-        }
-    );
-}
-#[test]
-fn computing_the_normal_on_a_transformed_sphere() {
-    let mut s = Shape::sphere();
-    const M: Matrix<4, 4> = Matrix::identity()
-        .then(rotation_z(PI / 5.0))
-        .then(scaling(1.0, 0.5, 1.0));
-    s.set_transform(M);
-    let n = s.normal_at(&Point {
-        x: 0.0,
-        y: 2.0_f32.sqrt() / 2.0,
-        z: -2.0_f32.sqrt() / 2.0,
-    });
-    assert_eq!(
-        n,
-        Vector {
+            y: 1.70711,
+            z: -0.70711,
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 0.0,
+                y: 0.70711,
+                z: -0.70711
+            }
+        );
+    }
+    #[test]
+    fn computing_the_normal_on_a_transformed_sphere() {
+        let mut s = Shape::sphere();
+        const M: Matrix<4, 4> = Matrix::identity()
+            .then(rotation_z(PI / 5.0))
+            .then(scaling(1.0, 0.5, 1.0));
+        s.set_transform(M);
+        let n = s.normal_at(&Point {
             x: 0.0,
-            y: 0.97014,
-            z: -0.24254
-        }
-    );
-}
-#[test]
-fn a_sphere_has_a_default_material() {
-    let s = Sphere::unit();
-    let m = s.material;
-    assert_eq!(m, Material::default());
-}
-#[test]
-fn a_sphere_may_be_assigned_a_material() {
-    let mut s = Sphere::unit();
-    let mut m = Material::default();
-    m.set_ambient(1.0);
-    s.set_material(m.clone());
-    assert_eq!(s.material, m);
+            y: 2.0_f32.sqrt() / 2.0,
+            z: -2.0_f32.sqrt() / 2.0,
+        });
+        assert_eq!(
+            n,
+            Vector {
+                x: 0.0,
+                y: 0.97014,
+                z: -0.24254
+            }
+        );
+    }
+    #[test]
+    fn a_sphere_has_a_default_material() {
+        let s = Sphere::unit();
+        let m = s.material;
+        assert_eq!(m, Material::default());
+    }
+    #[test]
+    fn a_sphere_may_be_assigned_a_material() {
+        let mut s = Sphere::unit();
+        let mut m = Material::default();
+        m.set_ambient(1.0);
+        s.set_material(m.clone());
+        assert_eq!(s.material, m);
+    }
 }

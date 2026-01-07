@@ -45,23 +45,26 @@ impl LightProperties for Light {
         }
     }
 }
+mod tests {
+    use super::*;
 
-#[test]
-fn a_point_light_has_a_position_and_intensity() {
-    let intensity = Color {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-    };
-    let position = Point {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-    let light = Light::Point(PointLight {
-        position: position.clone(),
-        intensity: intensity.clone(),
-    });
-    assert_eq!(light.position(), position);
-    assert_eq!(light.intensity(), intensity);
+    #[test]
+    fn a_point_light_has_a_position_and_intensity() {
+        let intensity = Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        };
+        let position = Point {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let light = Light::Point(PointLight {
+            position: position.clone(),
+            intensity: intensity.clone(),
+        });
+        assert_eq!(light.position(), position);
+        assert_eq!(light.intensity(), intensity);
+    }
 }

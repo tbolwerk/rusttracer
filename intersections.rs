@@ -112,170 +112,173 @@ impl Intersection {
         Self { t, object_id }
     }
 }
+mod tests {
+    use super::*;
 
-#[test]
-fn an_intersection_encapsulates_t_and_object() {
-    const S: Shape = Shape::sphere();
-    let i = Intersection::new(3.5, 0);
-    assert_eq!(i.t, 3.5);
-    assert_eq!(i.object_id, 0);
-}
-#[test]
-fn aggregating_intersections() {
-    const S: Shape = Shape::sphere();
-    let i1 = Intersection::new(1.0, 0);
-    let i2 = Intersection::new(2.0, 1);
-    let xs = Intersections::new(vec![i1, i2]);
-    assert_eq!(xs[0].t, 1.0);
-    assert_eq!(xs[1].t, 2.0);
-}
-#[test]
-fn the_hit_when_all_intersections_have_positive_t() {
-    const S: Shape = Shape::sphere();
-    let i1 = Intersection::new(1.0, 0);
-    let i2 = Intersection::new(2.0, 1);
-    let xs = Intersections::new(vec![i2, i1]);
-    let i = xs.hit();
-    assert_eq!(i.unwrap(), &i1);
-}
-#[test]
-fn the_hit_when_some_intersections_have_negative_t() {
-    const S: Shape = Shape::sphere();
-    let i1 = Intersection::new(-1.0, 0);
-    let i2 = Intersection::new(1.0, 1);
-    let xs = Intersections::new(vec![i2, i1]);
-    let i = xs.hit();
-    assert_eq!(i.unwrap(), &i2);
-}
-#[test]
-fn the_hit_when_all_intersections_have_negative_t() {
-    const S: Shape = Shape::sphere();
-    let i1 = Intersection::new(-2.0, 0);
-    let i2 = Intersection::new(-1.0, 1);
-    let xs = Intersections::new(vec![i2, i1]);
-    let i = xs.hit();
-    assert_eq!(i, None);
-}
-#[test]
-fn the_hit_is_always_the_lowest_nonnegative_intersection() {
-    const S: Shape = Shape::sphere();
-    let i1 = Intersection::new(5.0, 0);
-    let i2 = Intersection::new(7.0, 1);
-    let i3 = Intersection::new(-3.0, 2);
-    let i4 = Intersection::new(2.0, 3);
-    let xs = Intersections::new(vec![i1, i2, i3, i4]);
-    let i = xs.hit();
-    assert_eq!(i.unwrap(), &i4);
-}
-#[test]
-fn precomputing_the_state_of_an_intersection() {
-    let r = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    let mut w = World::new();
-    let shape = Shape::sphere();
-    w.objects.append(&mut vec![shape]);
-    let i = Intersection::new(4.0, 0);
-    let comps = i.prepare_computations(&r, &w);
-    assert_eq!(comps.t, i.t);
-    assert_eq!(comps.object_id, i.object_id);
-    assert_eq!(
-        comps.point,
-        Point {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
-    assert_eq!(
-        comps.eyev,
-        Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
-    assert_eq!(
-        comps.normalv,
-        Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
-}
-#[test]
-fn the_hit_when_an_intersection_occurs_on_the_outside() {
-    let r = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: -5.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    let shape = Shape::sphere();
-    let i = Intersection::new(4.0, 0);
-    let mut w = World::new();
-    w.objects.append(&mut vec![shape]);
-    let comps = i.prepare_computations(&r, &w);
-    assert_eq!(comps.inside, false);
-}
-#[test]
-fn the_hit_when_an_intersection_occurs_on_the_inside() {
-    let r = Ray {
-        origin: Point {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        direction: Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-    };
-    let shape = Shape::sphere();
-    let i = Intersection::new(1.0, 0);
-    let mut w = World::new();
-    w.objects.append(&mut vec![shape]);
-    let comps = i.prepare_computations(&r, &w);
-    assert_eq!(
-        comps.point,
-        Point {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0
-        }
-    );
-    assert_eq!(
-        comps.eyev,
-        Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
-    assert_eq!(comps.inside, true);
-    assert_eq!(
-        comps.normalv,
-        Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }
-    );
+    #[test]
+    fn an_intersection_encapsulates_t_and_object() {
+        const S: Shape = Shape::sphere();
+        let i = Intersection::new(3.5, 0);
+        assert_eq!(i.t, 3.5);
+        assert_eq!(i.object_id, 0);
+    }
+    #[test]
+    fn aggregating_intersections() {
+        const S: Shape = Shape::sphere();
+        let i1 = Intersection::new(1.0, 0);
+        let i2 = Intersection::new(2.0, 1);
+        let xs = Intersections::new(vec![i1, i2]);
+        assert_eq!(xs[0].t, 1.0);
+        assert_eq!(xs[1].t, 2.0);
+    }
+    #[test]
+    fn the_hit_when_all_intersections_have_positive_t() {
+        const S: Shape = Shape::sphere();
+        let i1 = Intersection::new(1.0, 0);
+        let i2 = Intersection::new(2.0, 1);
+        let xs = Intersections::new(vec![i2, i1]);
+        let i = xs.hit();
+        assert_eq!(i.unwrap(), &i1);
+    }
+    #[test]
+    fn the_hit_when_some_intersections_have_negative_t() {
+        const S: Shape = Shape::sphere();
+        let i1 = Intersection::new(-1.0, 0);
+        let i2 = Intersection::new(1.0, 1);
+        let xs = Intersections::new(vec![i2, i1]);
+        let i = xs.hit();
+        assert_eq!(i.unwrap(), &i2);
+    }
+    #[test]
+    fn the_hit_when_all_intersections_have_negative_t() {
+        const S: Shape = Shape::sphere();
+        let i1 = Intersection::new(-2.0, 0);
+        let i2 = Intersection::new(-1.0, 1);
+        let xs = Intersections::new(vec![i2, i1]);
+        let i = xs.hit();
+        assert_eq!(i, None);
+    }
+    #[test]
+    fn the_hit_is_always_the_lowest_nonnegative_intersection() {
+        const S: Shape = Shape::sphere();
+        let i1 = Intersection::new(5.0, 0);
+        let i2 = Intersection::new(7.0, 1);
+        let i3 = Intersection::new(-3.0, 2);
+        let i4 = Intersection::new(2.0, 3);
+        let xs = Intersections::new(vec![i1, i2, i3, i4]);
+        let i = xs.hit();
+        assert_eq!(i.unwrap(), &i4);
+    }
+    #[test]
+    fn precomputing_the_state_of_an_intersection() {
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let mut w = World::new();
+        let shape = Shape::sphere();
+        w.objects.append(&mut vec![shape]);
+        let i = Intersection::new(4.0, 0);
+        let comps = i.prepare_computations(&r, &w);
+        assert_eq!(comps.t, i.t);
+        assert_eq!(comps.object_id, i.object_id);
+        assert_eq!(
+            comps.point,
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+        assert_eq!(
+            comps.eyev,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+        assert_eq!(
+            comps.normalv,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+    }
+    #[test]
+    fn the_hit_when_an_intersection_occurs_on_the_outside() {
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let shape = Shape::sphere();
+        let i = Intersection::new(4.0, 0);
+        let mut w = World::new();
+        w.objects.append(&mut vec![shape]);
+        let comps = i.prepare_computations(&r, &w);
+        assert_eq!(comps.inside, false);
+    }
+    #[test]
+    fn the_hit_when_an_intersection_occurs_on_the_inside() {
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let shape = Shape::sphere();
+        let i = Intersection::new(1.0, 0);
+        let mut w = World::new();
+        w.objects.append(&mut vec![shape]);
+        let comps = i.prepare_computations(&r, &w);
+        assert_eq!(
+            comps.point,
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0
+            }
+        );
+        assert_eq!(
+            comps.eyev,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+        assert_eq!(comps.inside, true);
+        assert_eq!(
+            comps.normalv,
+            Vector {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0
+            }
+        );
+    }
 }
