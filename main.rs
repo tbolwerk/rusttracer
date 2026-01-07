@@ -50,7 +50,7 @@ fn chapter7() {
         g: 0.9,
         b: 0.9,
     });
-    material.specular = 0.0;
+    material.set_specular(0.0);
     floor.set_material(material.clone());
 
     let mut left_wall = Shape::sphere();
@@ -76,8 +76,8 @@ fn chapter7() {
         g: 1.0,
         b: 0.5,
     });
-    middle_material.diffuse = 0.7;
-    middle_material.specular = 0.3;
+    middle_material.set_diffuse(0.7);
+    middle_material.set_specular(0.3);
     middle.set_material(middle_material);
 
     let mut right = Shape::sphere();
