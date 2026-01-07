@@ -10,6 +10,15 @@ pub enum Light {
     Point(PointLight),
 }
 
+impl Light {
+    pub const fn point_light(position: Point, intensity: Color) -> Light {
+        Light::Point(PointLight {
+            position,
+            intensity,
+        })
+    }
+}
+
 impl PointLight {
     pub const fn new(position: Point, intensity: Color) -> Self {
         Self {

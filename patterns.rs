@@ -1,11 +1,13 @@
 use crate::tuples::*;
 
+#[derive(PartialEq, Debug, Clone)]
 struct StripePattern {
     a: Color,
     b: Color,
 }
 
-enum Pattern {
+#[derive(PartialEq, Debug, Clone)]
+pub enum Pattern {
     Stripe(StripePattern),
 }
 
@@ -19,10 +21,10 @@ impl StripePattern {
 }
 
 impl Pattern {
-    fn stripe_pattern(a: Color, b: Color) -> Self {
+    pub fn stripe_pattern(a: Color, b: Color) -> Self {
         Pattern::Stripe(StripePattern { a, b })
     }
-    fn stripe_at(&self, point: Point) -> Color {
+    pub fn stripe_at(&self, point: Point) -> Color {
         match self {
             Pattern::Stripe(stripe_pattern) => stripe_pattern.color(point),
         }

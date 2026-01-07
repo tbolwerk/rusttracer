@@ -1,4 +1,4 @@
-use crate::{lights::*, tuples::*};
+use crate::{lights::*, patterns::Pattern, tuples::*};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
@@ -7,6 +7,7 @@ pub struct Material {
     pub diffuse: f32,
     pub specular: f32,
     pub shininess: f32,
+    pub pattern: Option<Pattern>,
 }
 
 impl Material {
@@ -23,6 +24,7 @@ impl Material {
             diffuse,
             specular,
             shininess,
+            pattern: None,
         }
     }
     pub const fn default() -> Self {
@@ -53,6 +55,9 @@ impl Material {
     pub const fn set_shininess(&mut self, shininess: f32) -> () {
         self.shininess = shininess
     }
+    pub const fn set_pattern(&mut self, pattern: Pattern) -> () {
+        self.pattern = Some(pattern)
+    }
 }
 
 pub fn lightning(
@@ -63,9 +68,13 @@ pub fn lightning(
     normalv: Vector,
     in_shadow: bool,
 ) -> Color {
-    let effective_color = material.color.clone() * light.intensity();
+    let color = match material.pattern {
+        None => material.color,
+        Some(ref pattern) => pattern.stripe_at(point),
+    };
+    let effective_color = color * light.intensity();
     let lightv = (light.position() - point).normalize();
-    let ambient = effective_color.clone() * material.ambient;
+    let ambient = effective_color * material.ambient;
 
     if in_shadow {
         return ambient;
@@ -332,6 +341,88 @@ mod tests {
                 b: 0.1
             },
             result
+        );
+    }
+    #[test]
+    fn lighting_with_a_pattern_applied() {
+        let (m, _) = background();
+        let mut material = m.clone();
+        material.set_pattern(Pattern::stripe_pattern(
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            },
+        ));
+        material.set_ambient(1.0);
+        material.set_diffuse(0.0);
+        material.set_specular(0.0);
+        let eyev = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let normalv = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        };
+        let light = Light::point_light(
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 10.0,
+            },
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        );
+        let c1 = lightning(
+            &material,
+            light.clone(),
+            Point {
+                x: 0.9,
+                y: 0.0,
+                z: 0.0,
+            },
+            eyev,
+            normalv,
+            false,
+        );
+        let c2 = lightning(
+            &material,
+            light,
+            Point {
+                x: 1.1,
+                y: 0.0,
+                z: 0.0,
+            },
+            eyev,
+            normalv,
+            false,
+        );
+        assert_eq!(
+            c1,
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0
+            }
+        );
+        assert_eq!(
+            c2,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0
+            }
         );
     }
 }
