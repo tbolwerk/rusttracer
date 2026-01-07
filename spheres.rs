@@ -68,10 +68,6 @@ impl HasMaterial for Sphere {
 }
 
 impl Intersects for Sphere {
-    fn local_normal_at(&self, point: &Point) -> Vector {
-        let object_normal: Vector = point.clone() - Point::default();
-        object_normal
-    }
     fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
         let sphere_to_ray = ray.origin.clone() - self.origin.clone();
 
