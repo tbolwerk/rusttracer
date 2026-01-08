@@ -223,6 +223,16 @@ impl Add<Color> for Color {
         }
     }
 }
+impl Sub<Color> for Color {
+    type Output = Color;
+    fn sub(self, rhs: Color) -> Self::Output {
+        Color {
+            r: self.r - rhs.r,
+            g: self.g - rhs.g,
+            b: self.b - rhs.b,
+        }
+    }
+}
 impl Div<f32> for Point {
     type Output = Point;
     fn div(self, rhs: f32) -> Self::Output {

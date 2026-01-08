@@ -48,7 +48,7 @@ fn chapter10() {
     let mut world = World::default();
     let mut floor = Shape::plane();
     let mut floor_material = Material::default();
-    let pattern = Pattern::stripe_pattern(
+    let pattern = Pattern::ring_pattern(
         Color {
             r: 0.9,
             g: 0.3,
@@ -93,7 +93,18 @@ fn chapter10() {
     let mut middle = Shape::sphere();
     middle.set_transform(translation(-0.5, 1.0, 0.5));
     let mut middle_material = Material::default();
-    middle_material.set_pattern(pattern.clone());
+    middle_material.set_pattern(Pattern::checker_pattern(
+        Color {
+            r: 0.0,
+            g: 0.3,
+            b: 0.7,
+        },
+        Color {
+            r: 0.5,
+            g: 0.0,
+            b: 0.2,
+        },
+    ));
     middle_material.set_color(Color {
         r: 0.1,
         g: 1.0,
@@ -107,7 +118,18 @@ fn chapter10() {
     const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
     right.set_transform(RIGHT_TRANSFORM);
     let mut right_material = Material::default();
-    right_material.set_pattern(pattern.clone());
+    right_material.set_pattern(Pattern::gradient_pattern(
+        Color {
+            r: 0.3,
+            g: 0.3,
+            b: 0.0,
+        },
+        Color {
+            r: 0.7,
+            g: 0.7,
+            b: 1.0,
+        },
+    ));
     right_material.set_color(Color {
         r: 0.5,
         g: 1.0,

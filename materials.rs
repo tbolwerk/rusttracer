@@ -76,7 +76,7 @@ pub fn lightning(
     let material = object.get_material();
     let color = match material.pattern {
         None => material.color,
-        Some(ref pattern) => pattern.stripe_at_object(object, point),
+        Some(ref pattern) => pattern.pattern_at_shape(object, point),
     };
     let effective_color = color * light.intensity();
     let lightv = (light.position() - point).normalize();
