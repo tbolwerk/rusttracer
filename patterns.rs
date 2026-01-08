@@ -1,14 +1,8 @@
 use crate::{
     matrices::{inverse, Matrix},
-    shapes::{HasTransform, Shape},
+    shapes::{HasTransform, Shape, TransformData},
     tuples::*,
 };
-
-#[derive(Clone, Debug, PartialEq)]
-struct TransformData {
-    transform: Matrix<4, 4>,
-    inverse_transform: Option<Matrix<4, 4>>,
-}
 
 #[derive(PartialEq, Debug, Clone)]
 struct CheckerPattern {
@@ -62,19 +56,6 @@ pub enum Pattern {
     Checker(CheckerPattern),
 }
 
-impl HasTransform for TransformData {
-    fn set_transform(&mut self, transform: crate::matrices::Matrix<4, 4>) -> () {
-        self.transform = transform;
-        self.inverse_transform = inverse(&transform);
-    }
-    fn get_transform(&self) -> Matrix<4, 4> {
-        self.transform
-    }
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        self.inverse_transform
-    }
-}
-
 impl HasTransform for Pattern {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
         match self {
@@ -114,10 +95,7 @@ impl CheckerPattern {
         Self {
             a,
             b,
-            transform: TransformData {
-                transform: Matrix::identity(),
-                inverse_transform: None,
-            },
+            transform: TransformData::new(Matrix::identity(), None),
         }
     }
     fn color(&self, point: Point) -> Color {
@@ -133,10 +111,7 @@ impl RingPattern {
         Self {
             a,
             b,
-            transform: TransformData {
-                transform: Matrix::identity(),
-                inverse_transform: None,
-            },
+            transform: TransformData::new(Matrix::identity(), None),
         }
     }
     fn color(&self, point: Point) -> Color {
@@ -152,10 +127,7 @@ impl GradientPattern {
         Self {
             a,
             b,
-            transform: TransformData {
-                transform: Matrix::identity(),
-                inverse_transform: None,
-            },
+            transform: TransformData::new(Matrix::identity(), None),
         }
     }
     fn color(&self, point: Point) -> Color {
@@ -171,10 +143,7 @@ impl StripePattern {
         Self {
             a,
             b,
-            transform: TransformData {
-                transform: Matrix::identity(),
-                inverse_transform: None,
-            },
+            transform: TransformData::new(Matrix::identity(), None),
         }
     }
     fn color(&self, point: Point) -> Color {
@@ -188,10 +157,7 @@ impl StripePattern {
 impl Pattern {
     fn test_pattern() -> Self {
         Pattern::Test(TestPattern {
-            transform: TransformData {
-                transform: Matrix::identity(),
-                inverse_transform: None,
-            },
+            transform: TransformData::new(Matrix::identity(), None),
         })
     }
     pub fn stripe_pattern(a: Color, b: Color) -> Self {
@@ -232,7 +198,7 @@ impl Pattern {
             Pattern::Gradient(gradient_pattern) => gradient_pattern.a,
             Pattern::Ring(ring_pattern) => ring_pattern.a,
             Pattern::Checker(checker_pattern) => checker_pattern.a,
-            _ => panic!("No 'a' for {:?}", self),
+            _ => panic!("No 'a' color for {:?}", self),
         }
     }
     fn b(&self) -> Color {
@@ -241,7 +207,7 @@ impl Pattern {
             Pattern::Gradient(gradient_pattern) => gradient_pattern.b,
             Pattern::Ring(ring_pattern) => ring_pattern.b,
             Pattern::Checker(checker_pattern) => checker_pattern.b,
-            _ => panic!("No 'b' for {:?}", self),
+            _ => panic!("No 'b' color for {:?}", self),
         }
     }
 }

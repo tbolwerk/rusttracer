@@ -11,8 +11,7 @@ use crate::{
 use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 struct TestShape {
-    transform: Matrix<4, 4>,
-    inverse_transform: Option<Matrix<4, 4>>,
+    transform: TransformData,
     material: Material,
     saved_ray: Arc<Mutex<Option<Ray>>>,
 }
@@ -31,8 +30,10 @@ impl PartialEq for TestShape {
 impl Default for TestShape {
     fn default() -> Self {
         Self {
-            transform: Matrix::identity(),
-            inverse_transform: None,
+            transform: TransformData {
+                transform: Matrix::identity(),
+                inverse_transform: None,
+            },
             material: Material::default(),
             saved_ray: Arc::new(Mutex::new(None)),
         }
@@ -89,24 +90,32 @@ pub trait HasTransform {
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>>;
 }
 
-pub trait HasMaterial {
-    fn set_material(&mut self, material: Material) -> ();
-    fn get_material(&self) -> Material;
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransformData {
+    transform: Matrix<4, 4>,
+    inverse_transform: Option<Matrix<4, 4>>,
 }
 
-pub trait Intersects: HasMaterial + HasTransform {
-    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections;
-    fn local_normal_at(&self, point: &Point) -> Vector {
-        Vector {
-            x: point.x(),
-            y: point.y(),
-            z: point.z(),
+impl TransformData {
+    pub const fn new(transform: Matrix<4, 4>, inverse_transform: Option<Matrix<4, 4>>) -> Self {
+        Self {
+            transform,
+            inverse_transform,
         }
     }
 }
 
-impl HasTransform for TestShape {
-    fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
+impl Default for TransformData {
+    fn default() -> Self {
+        Self {
+            transform: Matrix::identity(),
+            inverse_transform: None,
+        }
+    }
+}
+
+impl HasTransform for TransformData {
+    fn set_transform(&mut self, transform: crate::matrices::Matrix<4, 4>) -> () {
         self.transform = transform;
         self.inverse_transform = inverse(&transform);
     }
@@ -118,26 +127,42 @@ impl HasTransform for TestShape {
     }
 }
 
+pub trait HasMaterial {
+    fn set_material(&mut self, material: Material) -> ();
+    fn get_material(&self) -> Material;
+}
+
+pub trait Intersects: HasMaterial {
+    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections;
+    fn local_normal_at(&self, point: &Point) -> Vector {
+        Vector {
+            x: point.x(),
+            y: point.y(),
+            z: point.z(),
+        }
+    }
+}
+
 impl HasTransform for Shape {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
         match self {
-            Shape::Test(test_shape) => test_shape.set_transform(transform),
-            Shape::Sphere(sphere) => sphere.set_transform(transform),
-            Shape::Plane(plane) => plane.set_transform(transform),
+            Shape::Test(test_shape) => test_shape.transform.set_transform(transform),
+            Shape::Sphere(sphere) => sphere.transform.set_transform(transform),
+            Shape::Plane(plane) => plane.transform.set_transform(transform),
         }
     }
     fn get_transform(&self) -> Matrix<4, 4> {
         match self {
-            Shape::Test(test_shape) => test_shape.get_transform(),
-            Shape::Sphere(sphere) => sphere.transform,
-            Shape::Plane(plane) => plane.get_transform(),
+            Shape::Test(test_shape) => test_shape.transform.get_transform(),
+            Shape::Sphere(sphere) => sphere.transform.get_transform(),
+            Shape::Plane(plane) => plane.transform.get_transform(),
         }
     }
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
         match self {
-            Shape::Test(test_shape) => test_shape.get_inverse_transform(),
-            Shape::Sphere(sphere) => sphere.inverse_transform,
-            Shape::Plane(plane) => plane.get_inverse_transform(),
+            Shape::Test(test_shape) => test_shape.transform.get_inverse_transform(),
+            Shape::Sphere(sphere) => sphere.transform.get_inverse_transform(),
+            Shape::Plane(plane) => plane.transform.get_inverse_transform(),
         }
     }
 }

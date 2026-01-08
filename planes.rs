@@ -8,29 +8,15 @@ use crate::tuples::*;
 impl Default for Plane {
     fn default() -> Self {
         Self {
-            transform: Matrix::identity(),
-            inverse_transform: None,
+            transform: TransformData::default(),
             material: Material::default(),
         }
     }
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct Plane {
-    transform: Matrix<4, 4>,
-    inverse_transform: Option<Matrix<4, 4>>,
+    pub transform: TransformData,
     material: Material,
-}
-impl HasTransform for Plane {
-    fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
-        self.transform = transform;
-        self.inverse_transform = inverse(&self.transform);
-    }
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        self.inverse_transform
-    }
-    fn get_transform(&self) -> Matrix<4, 4> {
-        self.transform
-    }
 }
 impl HasMaterial for Plane {
     fn set_material(&mut self, material: Material) -> () {

@@ -11,50 +11,22 @@ use crate::tuples::*;
 pub struct Sphere {
     pub origin: Point,
     pub radius: f32,
-    pub transform: Matrix<4, 4>,
-    pub inverse_transform: Option<Matrix<4, 4>>,
+    pub transform: TransformData,
     pub material: Material,
 }
 
 impl Sphere {
-    pub const fn new(
-        origin: Point,
-        radius: f32,
-        transform: Matrix<4, 4>,
-        material: Material,
-    ) -> Self {
-        Self {
-            origin,
-            radius,
-            transform,
-            inverse_transform: None,
-            material,
-        }
-    }
     pub const fn unit() -> Self {
-        Self::new(
-            Point {
+        Self {
+            origin: Point {
                 x: 0.0,
                 y: 0.0,
                 z: 0.0,
             },
-            1.0,
-            Matrix::identity(),
-            Material::default(),
-        )
-    }
-}
-
-impl HasTransform for Sphere {
-    fn get_transform(&self) -> Matrix<4, 4> {
-        self.transform
-    }
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        self.inverse_transform
-    }
-    fn set_transform(&mut self, transform: Matrix<4, 4>) {
-        self.transform = transform.clone();
-        self.inverse_transform = inverse(&self.transform);
+            radius: 1.0,
+            transform: TransformData::new(Matrix::identity(), None),
+            material: Material::default(),
+        }
     }
 }
 
@@ -209,14 +181,14 @@ mod tests {
     #[test]
     fn a_spheres_default_transformation() {
         const S: Sphere = Sphere::unit();
-        assert_eq!(S.transform, Matrix::identity());
+        assert_eq!(S.transform.get_transform(), Matrix::identity());
     }
     #[test]
     fn changing_a_spheres_transformation() {
         let mut s: Sphere = Sphere::unit();
         const T: Matrix<4, 4> = translation(2.0, 3.0, 4.0);
-        s.set_transform(T);
-        assert_eq!(s.transform, T);
+        s.transform.set_transform(T);
+        assert_eq!(s.transform.get_transform(), T);
     }
     #[test]
     fn intersecting_a_scaled_sphere_with_a_ray() {
