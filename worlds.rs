@@ -86,6 +86,19 @@ impl World {
             }
         }
     }
+    pub fn reflected_color(&self, comps: Computations) -> Color {
+        let material = self.objects[comps.object_id].get_material();
+        if material.reflective == 0.0 {
+
+        return Color {r:0.0, g:0.0, b:0.0};
+        }
+        let reflect_ray = Ray {
+            origin: comps.over_point,
+            direction: comps.reflectv,
+        };
+        let color = self.color_at(&reflect_ray);
+        color * material.reflective
+    }
 }
 impl Default for World {
     fn default() -> Self {
@@ -530,5 +543,57 @@ mod tests {
         let comps = i.prepare_computations(&r, &w);
         assert_eq!(comps.over_point.z() < -EPSILON / 2.0, true);
         assert_eq!(comps.point.z() > comps.over_point.z(), true);
+    }
+    #[test]
+    fn the_reflected_color_for_a_nonreflective_material() {
+        let mut w = World::default();
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y:0.0,
+                z:0.0
+            }, 
+            direction: Vector { 
+                x:0.0,
+                y:0.0,
+                z:1.0
+            }
+        };
+        let mut second_object_material = w.objects[1].get_material();
+        second_object_material.set_ambient(1.0);
+        w.objects[1].set_material(second_object_material);
+        let i = Intersection::new(1.0, 1);
+        let comps = i.prepare_computations(&r, &w);
+        let color = w.reflected_color(comps);
+        assert_eq!(color, Color{r:0.0, g:0.0,b:0.0});
+    }
+    #[test]
+    fn the_reflected_color_for_a_reflective_material() {
+        let mut w = World::default();
+        let mut shape = Shape::plane();
+        let mut material = Material::default();
+        material.set_reflective(0.5);
+        const TRANSFORM: Matrix<4,4> = Matrix::identity().then(translation(0.0,-1.0,0.0));
+        shape.set_material(material);
+        shape.set_transform(TRANSFORM);
+        w.objects.append(&mut vec![shape]);
+
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y:0.0,
+                z:-3.0
+            },
+            direction: Vector { 
+                x:0.0,
+                y:-2.0_f32.sqrt()/2.0,
+                z:2.0_f32.sqrt()/2.0
+            }
+        };
+
+        let i = Intersection::new(2.0_f32.sqrt(), 2);
+        let comps = i.prepare_computations(&r, &w);
+        let color = w.reflected_color(comps);
+        assert_eq!(color, Color{r:0.19032, g:0.2379,b:0.14274});
     }
 }

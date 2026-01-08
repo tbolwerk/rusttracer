@@ -13,6 +13,7 @@ pub struct Material {
     pub specular: f32,
     pub shininess: f32,
     pub pattern: Option<Pattern>,
+    pub reflective: f32,
 }
 
 impl Material {
@@ -22,6 +23,7 @@ impl Material {
         diffuse: f32,
         specular: f32,
         shininess: f32,
+        reflective: f32,
     ) -> Self {
         Self {
             color,
@@ -30,6 +32,7 @@ impl Material {
             specular,
             shininess,
             pattern: None,
+            reflective,
         }
     }
     pub const fn default() -> Self {
@@ -43,6 +46,7 @@ impl Material {
             0.9,
             0.9,
             200.0,
+            0.0,
         )
     }
     pub const fn set_color(&mut self, color: Color) -> () {
@@ -62,6 +66,9 @@ impl Material {
     }
     pub const fn set_pattern(&mut self, pattern: Pattern) -> () {
         self.pattern = Some(pattern)
+    }
+    pub const fn set_reflective(&mut self, reflective: f32) -> () {
+        self.reflective = reflective
     }
 }
 
@@ -136,6 +143,8 @@ fn background() -> (Material, Point) {
 }
 
 mod tests {
+    use crate::{intersections::Intersection, rays::Ray, worlds::World};
+
     use super::*;
 
     #[test]
@@ -450,5 +459,39 @@ mod tests {
                 b: 0.0
             }
         );
+    }
+    #[test]
+    fn reflectivity_for_the_default_material() {
+        let m = Material::default();
+        assert_eq!(m.reflective, 0.0);
+    }
+    #[test]
+    fn precomputing_the_reflection_vector() {
+        let mut w = World::new();
+        let shape = Shape::plane();
+        w.objects.append(&mut vec![shape]);
+
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 1.0,
+                z: -1.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: -(2.0_f32.sqrt() / 2.0),
+                z: 2.0_f32.sqrt() / 2.0,
+            },
+        };
+        let i = Intersection::new(2.0_f32.sqrt(), 0);
+        let comps = i.prepare_computations(&r, &w);
+        assert_eq!(
+            comps.reflectv,
+            Vector {
+                x: 0.0,
+                y: 2.0_f32.sqrt() / 2.0,
+                z: 2.0_f32.sqrt() / 2.0
+            }
+        )
     }
 }

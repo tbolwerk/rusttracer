@@ -19,6 +19,7 @@ pub struct Computations {
     pub normalv: Vector,
     pub inside: bool,
     pub over_point: Point,
+    pub reflectv: Vector,
 }
 impl Intersection {
     pub fn prepare_computations(&self, ray: &Ray, world: &World) -> Computations {
@@ -32,6 +33,7 @@ impl Intersection {
             normalv = -normalv;
         }
         let over_point = point + normalv * EPSILON;
+        let reflectv = ray.direction.reflect(normalv);
         Computations {
             t: self.t,
             object_id: self.object_id,
@@ -40,6 +42,7 @@ impl Intersection {
             normalv: normalv,
             inside: inside,
             over_point: over_point,
+            reflectv: reflectv,
         }
     }
 }
