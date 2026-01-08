@@ -1,4 +1,5 @@
 use crate::canvas::Canvas;
+use crate::colors::Pixel;
 use crate::matrices::*;
 use crate::rays::*;
 use crate::transformations::rotation_y;
@@ -6,6 +7,7 @@ use crate::transformations::translation;
 use crate::transformations::PI;
 use crate::tuples::*;
 use crate::worlds::*;
+use rayon::prelude::*;
 use std::ops::Div;
 
 pub struct Camera<const HSIZE: usize, const VSIZE: usize> {
@@ -72,6 +74,23 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
                 image.write_pixel(color, y, x);
             }
         }
+        image
+    }
+    pub fn render_par(&self, world: World) -> Canvas<HSIZE, VSIZE> {
+        let mut image: Canvas<HSIZE, VSIZE> = Canvas::new(255);
+        image
+            .pixels
+            .par_rows_mut()
+            .enumerate()
+            .for_each(|(y, row)| {
+                for x in 0..HSIZE {
+                    let ray = self.ray_for_pixel(x, y);
+                    let color = world.color_at(&ray);
+
+                    row[x] = Pixel::clamp(0, 255, color);
+                }
+            });
+
         image
     }
 }

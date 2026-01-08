@@ -1,9 +1,9 @@
 use crate::colors::*;
 use crate::tuples::*;
+use rayon::prelude::*;
 use std::fmt::Write as StringWrite;
 use std::fs::File;
 use std::io::Write;
-use std::ops::Mul;
 
 pub enum PpmFormat {
     P3,
@@ -19,7 +19,7 @@ impl PrettyPrint for PpmFormat {
     }
 }
 
-struct HeapMatrix<T: std::marker::Copy + PrettyPrint, const ROWS: usize, const COLS: usize> {
+pub struct HeapMatrix<T: std::marker::Copy + PrettyPrint, const ROWS: usize, const COLS: usize> {
     data: Box<[T]>,
 }
 
@@ -35,6 +35,12 @@ impl<const ROWS: usize, const COLS: usize> Serialize for Canvas<ROWS, COLS> {
             }
         }
         buffer
+    }
+}
+
+impl<T: PrettyPrint + Copy + Send, const ROWS: usize, const COLS: usize> HeapMatrix<T, ROWS, COLS> {
+    pub fn par_rows_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut [T]> {
+        self.data.par_chunks_mut(COLS)
     }
 }
 
@@ -73,7 +79,7 @@ pub trait Serialize {
     fn to_bytes(&self) -> Vec<u8>;
 }
 pub struct Canvas<const ROWS: usize, const COLS: usize> {
-    pixels: HeapMatrix<Pixel, ROWS, COLS>,
+    pub pixels: HeapMatrix<Pixel, ROWS, COLS>,
     max_color: u8,
 }
 
@@ -87,21 +93,8 @@ impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
     pub fn set(&mut self, value: Pixel, row: usize, col: usize) -> () {
         self.pixels.set(value, row, col);
     }
-    fn clamp(&self, color: Color) -> Pixel {
-        Pixel {
-            r: (color.r.mul(self.max_color as f32).round() as u8)
-                .max(0)
-                .min(self.max_color),
-            g: (color.g.mul(self.max_color as f32).round() as u8)
-                .max(0)
-                .min(self.max_color),
-            b: (color.b.mul(self.max_color as f32).round() as u8)
-                .max(0)
-                .min(self.max_color),
-        }
-    }
     pub fn write_pixel(&mut self, color: Color, row: usize, col: usize) -> () {
-        let value = self.clamp(color);
+        let value = Pixel::clamp(0, self.max_color, color);
         self.set(value, row, col)
     }
     pub fn write_ppm(&self, filename: &str, format: PpmFormat) -> Result<(), std::io::Error> {
