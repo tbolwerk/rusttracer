@@ -421,14 +421,7 @@ fn chapter6() {
                     let normal = sphere.normal_at(&point);
                     let eye = -ray.direction;
 
-                    let color = lightning(
-                        &sphere.get_material(),
-                        light.clone(),
-                        point,
-                        eye,
-                        normal,
-                        false,
-                    );
+                    let color = lightning(&sphere, light.clone(), point, eye, normal, false);
                     canvas.write_pixel(color, y, x);
                 }
             }

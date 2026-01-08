@@ -44,7 +44,7 @@ impl World {
                 b: 0.0,
             },
             Some(light) => lightning(
-                &object.get_material(),
+                &object,
                 light,
                 comps.point,
                 comps.eyev,
