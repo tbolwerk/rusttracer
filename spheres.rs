@@ -361,4 +361,11 @@ mod tests {
         s.set_material(m.clone());
         assert_eq!(s.material, m);
     }
+    #[test]
+    fn a_helper_for_producing_a_sphere_with_glassy_material() {
+        let s = Shape::glass_sphere();
+        assert_eq!(s.get_transform(), Matrix::identity());
+        assert_eq!(s.get_material().transparency, 1.0);
+        assert_eq!(s.get_material().refractive_index, 1.5);
+    }
 }

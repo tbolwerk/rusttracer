@@ -42,7 +42,75 @@ fn main() -> Result<(), ()> {
     let _ = chapter7();
     let _ = chapter9();
     let _ = chapter10();
+    let _ = chapter11();
     Ok(())
+}
+
+fn chapter11() {
+    let mut world = World::default();
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    floor_material.set_color(Color {
+        r: 1.0,
+        g: 0.9,
+        b: 0.9,
+    });
+    floor_material.set_specular(0.0);
+    floor.set_material(floor_material);
+
+    let middle = Shape::with(
+        Shape::glass_sphere,
+        translation(-0.5, 1.0, 0.5),
+        Material::glass(),
+    );
+    let mut right = Shape::glass_sphere();
+    const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
+    right.set_transform(RIGHT_TRANSFORM);
+    let mut left = Shape::glass_sphere();
+    const LEFT_TRANSFORMATION: Matrix<4, 4> =
+        scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
+    left.set_transform(LEFT_TRANSFORMATION);
+
+    world.objects = vec![floor, middle, right, left];
+
+    let light_position = Point {
+        x: -10.0,
+        y: 10.0,
+        z: -10.0,
+    };
+    let light_color = Color {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+    };
+    let light = Light::Point(PointLight::new(light_position, light_color));
+    world.light = Some(light);
+
+    let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 1.5,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    let canvas = camera.render_par(world);
+    let filename = "chapter11.ppm";
+    let result = canvas.write_ppm(filename, PpmFormat::P6);
+    match result {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
 }
 fn chapter10() {
     let mut world = World::default();
@@ -187,7 +255,7 @@ fn chapter10() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render(world);
+    let canvas = camera.render_par(world);
     let filename = "chapter10.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -279,7 +347,7 @@ fn chapter9() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render(world);
+    let canvas = camera.render_par(world);
     let filename = "chapter9.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -374,7 +442,7 @@ fn chapter7() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render(world);
+    let canvas = camera.render_par(world);
     let filename = "chapter7.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {

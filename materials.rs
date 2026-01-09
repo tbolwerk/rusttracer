@@ -14,6 +14,8 @@ pub struct Material {
     pub shininess: f32,
     pub pattern: Option<Pattern>,
     pub reflective: f32,
+    pub transparency: f32,
+    pub refractive_index: f32,
 }
 
 impl Material {
@@ -24,6 +26,8 @@ impl Material {
         specular: f32,
         shininess: f32,
         reflective: f32,
+        transparency: f32,
+        refractive_index: f32,
     ) -> Self {
         Self {
             color,
@@ -33,6 +37,8 @@ impl Material {
             shininess,
             pattern: None,
             reflective,
+            transparency,
+            refractive_index,
         }
     }
     pub const fn default() -> Self {
@@ -47,7 +53,26 @@ impl Material {
             0.9,
             200.0,
             0.0,
+            0.0,
+            1.0,
         )
+    }
+    pub const fn glass() -> Self {
+        Self {
+            color: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+            ambient: 1.0,
+            diffuse: 1.0,
+            specular: 1.0,
+            shininess: 300.0,
+            pattern: None,
+            reflective: 0.9,
+            transparency: 0.0,
+            refractive_index: 0.5,
+        }
     }
     pub const fn set_color(&mut self, color: Color) -> () {
         self.color = color
@@ -69,6 +94,12 @@ impl Material {
     }
     pub const fn set_reflective(&mut self, reflective: f32) -> () {
         self.reflective = reflective
+    }
+    pub const fn set_transparency(&mut self, transparency: f32) -> () {
+        self.transparency = transparency
+    }
+    pub const fn set_refractive_index(&mut self, refractive_index: f32) -> () {
+        self.refractive_index = refractive_index
     }
 }
 
@@ -143,7 +174,11 @@ fn background() -> (Material, Point) {
 }
 
 mod tests {
-    use crate::{intersections::Intersection, rays::Ray, worlds::World};
+    use crate::{
+        intersections::{Intersection, Intersections},
+        rays::Ray,
+        worlds::World,
+    };
 
     use super::*;
 
@@ -484,7 +519,7 @@ mod tests {
             },
         };
         let i = Intersection::new(2.0_f32.sqrt(), 0);
-        let comps = i.prepare_computations(&r, &w);
+        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         assert_eq!(
             comps.reflectv,
             Vector {
@@ -493,5 +528,13 @@ mod tests {
                 z: 2.0_f32.sqrt() / 2.0
             }
         )
+    }
+    #[test]
+    fn transparency_and_refractive_index_for_the_default_material() {
+        let mut m = Material::default();
+        m.set_transparency(0.0);
+        m.set_refractive_index(1.0);
+        assert_eq!(m.transparency, 0.0);
+        assert_eq!(m.refractive_index, 1.0);
     }
 }

@@ -155,7 +155,7 @@ impl StripePattern {
 }
 
 impl Pattern {
-    fn test_pattern() -> Self {
+    pub fn test_pattern() -> Self {
         Pattern::Test(TestPattern {
             transform: TransformData::new(Matrix::identity(), None),
         })

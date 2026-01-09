@@ -54,8 +54,22 @@ impl Shape {
     pub const fn sphere() -> Shape {
         Shape::Sphere(Sphere::unit())
     }
+    pub fn glass_sphere() -> Shape {
+        let mut sphere = Shape::Sphere(Sphere::unit());
+        let mut glass = Material::default();
+        glass.set_transparency(1.0);
+        glass.set_refractive_index(1.5);
+        sphere.set_material(glass);
+        sphere
+    }
     pub fn plane() -> Shape {
         Shape::Plane(Plane::default())
+    }
+    pub fn with(shape: fn() -> Shape, transform: Matrix<4, 4>, material: Material) -> Shape {
+        let mut s = shape();
+        s.set_transform(transform);
+        s.set_material(material);
+        s
     }
     pub fn intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
         let local_ray = match self.get_inverse_transform() {

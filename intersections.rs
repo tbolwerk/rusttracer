@@ -20,9 +20,64 @@ pub struct Computations {
     pub inside: bool,
     pub over_point: Point,
     pub reflectv: Vector,
+    pub n1: f32,
+    pub n2: f32,
+    pub under_point: Point,
+}
+
+impl Computations {
+    pub fn schlick(&self) -> f32 {
+        let mut cos = self.eyev.dot(self.normalv);
+
+        if self.n1 > self.n2 {
+            let n = self.n1 / self.n2;
+            let sin2_t = n.powi(2) * (1.0 - cos.powi(2));
+            if sin2_t > 1.0 {
+                return 1.0;
+            }
+
+            let cos_t = (1.0 - sin2_t).sqrt();
+
+            cos = cos_t;
+        }
+
+        let r0 = ((self.n1 - self.n2) / (self.n1 + self.n2)).powi(2);
+        r0 + (1.0 - r0) * (1.0 - cos).powi(5)
+    }
 }
 impl Intersection {
-    pub fn prepare_computations(&self, ray: &Ray, world: &World) -> Computations {
+    pub fn prepare_computations(
+        &self,
+        ray: &Ray,
+        world: &World,
+        xs: &Intersections,
+    ) -> Computations {
+        let mut n1 = 1.0;
+        let mut n2 = 1.0;
+        let mut containers: Vec<usize> = vec![];
+        for i in xs.intersections.iter() {
+            if i == self {
+                match containers.last() {
+                    None => (),
+                    Some(object_id) => {
+                        n1 = world.objects[*object_id].get_material().refractive_index;
+                    }
+                }
+            }
+            if let Some(pos) = containers.iter().position(|&x| x == i.object_id) {
+                containers.remove(pos);
+            } else {
+                containers.push(i.object_id);
+            }
+            if i == self {
+                match containers.last() {
+                    None => (),
+                    Some(object_id) => {
+                        n2 = world.objects[*object_id].get_material().refractive_index;
+                    }
+                }
+            }
+        }
         let point = ray.position(self.t);
         let mut inside = false;
         let object = &world.objects[self.object_id];
@@ -33,6 +88,7 @@ impl Intersection {
             normalv = -normalv;
         }
         let over_point = point + normalv * EPSILON;
+        let under_point = point - normalv * EPSILON;
         let reflectv = ray.direction.reflect(normalv);
         Computations {
             t: self.t,
@@ -43,6 +99,9 @@ impl Intersection {
             inside: inside,
             over_point: over_point,
             reflectv: reflectv,
+            n1: n1,
+            n2: n2,
+            under_point,
         }
     }
 }
@@ -116,6 +175,11 @@ impl Intersection {
     }
 }
 mod tests {
+    use crate::{
+        materials::Material,
+        transformations::{scaling, translation},
+    };
+
     use super::*;
 
     #[test]
@@ -190,7 +254,7 @@ mod tests {
         let shape = Shape::sphere();
         w.objects.append(&mut vec![shape]);
         let i = Intersection::new(4.0, 0);
-        let comps = i.prepare_computations(&r, &w);
+        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         assert_eq!(comps.t, i.t);
         assert_eq!(comps.object_id, i.object_id);
         assert_eq!(
@@ -236,7 +300,7 @@ mod tests {
         let i = Intersection::new(4.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
-        let comps = i.prepare_computations(&r, &w);
+        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         assert_eq!(comps.inside, false);
     }
     #[test]
@@ -257,7 +321,7 @@ mod tests {
         let i = Intersection::new(1.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
-        let comps = i.prepare_computations(&r, &w);
+        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         assert_eq!(
             comps.point,
             Point {
@@ -283,5 +347,157 @@ mod tests {
                 z: -1.0
             }
         );
+    }
+    #[test]
+    fn finding_n1_and_n2_at_various_intersections() {
+        let mut material = Material::default();
+        material.set_refractive_index(1.5);
+        let a = Shape::with(
+            Shape::glass_sphere,
+            scaling(2.0, 2.0, 2.0),
+            material.clone(),
+        );
+        material.set_refractive_index(2.0);
+        let b = Shape::with(
+            Shape::glass_sphere,
+            translation(0.0, 0.0, -0.25),
+            material.clone(),
+        );
+        material.set_refractive_index(2.5);
+        let c = Shape::with(Shape::glass_sphere, translation(0.0, 0.0, 0.25), material);
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -4.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        };
+        let xs = Intersections::new(vec![
+            Intersection::new(2.0, 0),
+            Intersection::new(2.75, 1),
+            Intersection::new(3.25, 2),
+            Intersection::new(4.75, 1),
+            Intersection::new(5.25, 2),
+            Intersection::new(6.0, 0),
+        ]);
+        let mut w = World::default();
+        let examples = [
+            [1.0, 1.5],
+            [1.5, 2.0],
+            [2.0, 2.5],
+            [2.5, 2.5],
+            [2.5, 1.5],
+            [1.5, 1.0],
+        ];
+        w.objects = vec![a, b, c];
+        for index in 0..xs.count() {
+            let comps = xs[index].prepare_computations(&r, &w, &xs);
+            assert_eq!(comps.n1, examples[index][0]);
+            assert_eq!(comps.n2, examples[index][1]);
+        }
+    }
+    #[test]
+    fn the_under_point_is_the_offset_below_the_surface() {
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let shape = Shape::with(
+            Shape::glass_sphere,
+            translation(0.0, 0.0, 1.0),
+            Material::default(),
+        );
+        let i = Intersection::new(5.0, 0);
+        let xs = Intersections::new(vec![i]);
+        let mut w = World::default();
+        w.objects = vec![shape];
+
+        let comps = i.prepare_computations(&r, &w, &xs);
+        assert_eq!(comps.under_point.z > EPSILON / 2.0, true);
+        assert_eq!(comps.point.z < comps.under_point.z, true);
+    }
+    #[test]
+    fn the_schlick_approximation_under_total_internal_reflection() {
+        let shape = Shape::glass_sphere();
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 2.0_f32.sqrt() / 2.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        };
+        let xs = Intersections::new(vec![
+            Intersection::new(-2.0_f32.sqrt() / 2.0, 0),
+            Intersection::new(2.0_f32.sqrt() / 2.0, 0),
+        ]);
+        let mut w = World::default();
+        w.objects = vec![shape];
+        let comps = xs[1].prepare_computations(&r, &w, &xs);
+        let reflectance = comps.schlick();
+        assert_eq!(reflectance, 1.0);
+    }
+    #[test]
+    fn the_schlick_approximation_with_a_perpendicular_viewing_angle() {
+        let shape = Shape::glass_sphere();
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        };
+        let xs = Intersections::new(vec![Intersection::new(-1.0, 0), Intersection::new(1.0, 0)]);
+        let mut w = World::default();
+        w.objects = vec![shape];
+        let comps = xs[1].prepare_computations(&r, &w, &xs);
+        // Round two digits precision to keep it aligned with the book.
+        let reflectance = (comps.schlick() * 100.0).round() / 100.0;
+        assert_eq!(reflectance, 0.04);
+    }
+    #[test]
+    fn the_schlick_approximation_with_small_angle_and_n2_gt_n1() {
+        let shape = Shape::glass_sphere();
+        let r = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.99,
+                z: -2.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let xs = Intersections::new(vec![Intersection::new(1.8589, 0)]);
+        let mut w = World::default();
+        w.objects = vec![shape];
+        let comps = xs[0].prepare_computations(&r, &w, &xs);
+        // Round five digits precision to keep it aligned with the book.
+        let reflectance = (comps.schlick() * 100000.0).round() / 100000.0;
+        assert_eq!(reflectance, 0.48873);
     }
 }
