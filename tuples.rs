@@ -6,11 +6,24 @@ use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
 
-pub type Number = f32;
+pub type Number = f64;
 
 pub fn sqrt(x: Number) -> Number {
     x.sqrt()
 }
+
+macro_rules! assert_almost_eq {
+    ($a: expr, $b: expr) => {
+        assert!(
+            ($a - $b).abs() <= $crate::tuples::EPSILON,
+            "assert_almost_eq failed: {} != {}",
+            $a,
+            $b
+        );
+    };
+}
+
+pub(crate) use assert_almost_eq;
 
 pub trait Tuple {
     fn x(&self) -> Number;

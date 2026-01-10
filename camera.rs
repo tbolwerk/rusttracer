@@ -9,7 +9,6 @@ use crate::tuples::*;
 use crate::worlds::*;
 use rayon::prelude::*;
 use std::ops::Div;
-
 pub struct Camera<const HSIZE: usize, const VSIZE: usize> {
     field_of_view: Number,
     transform: Matrix<4, 4>,
@@ -114,7 +113,7 @@ mod tests {
         const VSIZE: usize = 125;
         let field_of_view = PI / 2.0;
         let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
-        assert_eq!(c.pixel_size, 0.01);
+        assert_almost_eq!(c.pixel_size, 0.01);
     }
     #[test]
     fn the_pixel_size_for_a_vertical_canvas() {
@@ -122,7 +121,7 @@ mod tests {
         const VSIZE: usize = 200;
         let field_of_view = PI / 2.0;
         let c: Camera<HSIZE, VSIZE> = Camera::new(field_of_view);
-        assert_eq!(c.pixel_size, 0.01);
+        assert_almost_eq!(c.pixel_size, 0.01);
     }
     #[test]
     fn constructing_a_ray_through_the_center_of_the_canvas() {
