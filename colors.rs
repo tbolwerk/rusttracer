@@ -1,4 +1,5 @@
 use crate::tuples::Color;
+use crate::tuples::Number;
 
 use std::ops::Mul;
 pub trait PrettyPrint {
@@ -33,9 +34,9 @@ impl Pixel {
     }
     pub fn clamp(min: u8, max: u8, color: Color) -> Pixel {
         Pixel {
-            r: (color.r.mul(max as f32).round() as u8).max(min).min(max),
-            g: (color.g.mul(max as f32).round() as u8).max(min).min(max),
-            b: (color.b.mul(max as f32).round() as u8).max(min).min(max),
+            r: (color.r.mul(max as Number).round() as u8).max(min).min(max),
+            g: (color.g.mul(max as Number).round() as u8).max(min).min(max),
+            b: (color.b.mul(max as Number).round() as u8).max(min).min(max),
         }
     }
 }

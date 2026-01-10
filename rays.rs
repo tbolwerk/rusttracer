@@ -6,7 +6,7 @@ pub struct Ray {
 }
 
 impl Ray {
-    pub fn position(&self, t: f32) -> Point {
+    pub fn position(&self, t: Number) -> Point {
         self.origin + self.direction * t
     }
     pub fn transform(&self, t: Matrix<4, 4>) -> Self {

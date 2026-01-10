@@ -1,14 +1,14 @@
 use crate::matrices::{inverse, Matrix};
 use crate::tuples::*;
 
-pub const PI: f32 = 3.14159265;
-const TWO_PI: f32 = 6.28318531;
+pub const PI: Number = 3.14159265;
+const TWO_PI: Number = 6.28318531;
 
-pub const fn radians(degree: f32) -> f32 {
+pub const fn radians(degree: Number) -> Number {
     degree * PI / 180.0
 }
 
-pub const fn translation(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
+pub const fn translation(x: Number, y: Number, z: Number) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(0, 3, x);
     m.set(1, 3, y);
@@ -16,7 +16,7 @@ pub const fn translation(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
     m
 }
 
-pub const fn scaling(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
+pub const fn scaling(x: Number, y: Number, z: Number) -> Matrix<4, 4> {
     let mut m = Matrix::init(0.0);
     m.set(0, 0, x);
     m.set(1, 1, y);
@@ -25,7 +25,7 @@ pub const fn scaling(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
     m
 }
 
-const fn normalize(mut x: f32) -> f32 {
+const fn normalize(mut x: Number) -> Number {
     // Bring angle into the range of -PI to PI where Taylor series is stable
     while x > PI {
         x -= TWO_PI;
@@ -36,7 +36,7 @@ const fn normalize(mut x: f32) -> f32 {
     x
 }
 
-const fn cos(x: f32) -> f32 {
+const fn cos(x: Number) -> Number {
     let x = normalize(x);
     let x2 = x * x;
     let x4 = x2 * x2;
@@ -46,7 +46,7 @@ const fn cos(x: f32) -> f32 {
     1.0 - x2 / 2.0 + x4 / 24.0 - x6 / 720.0 + x8 / 40320.0
 }
 
-const fn sin(x: f32) -> f32 {
+const fn sin(x: Number) -> Number {
     let x = normalize(x);
     let x2 = x * x;
     let x3 = x * x2;
@@ -57,7 +57,7 @@ const fn sin(x: f32) -> f32 {
     x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0 + x9 / 362880.0
 }
 
-pub const fn rotation_x(r: f32) -> Matrix<4, 4> {
+pub const fn rotation_x(r: Number) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(1, 1, cos(r));
     m.set(1, 2, -1.0 * sin(r));
@@ -67,7 +67,7 @@ pub const fn rotation_x(r: f32) -> Matrix<4, 4> {
     m
 }
 
-pub const fn rotation_y(r: f32) -> Matrix<4, 4> {
+pub const fn rotation_y(r: Number) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(0, 0, cos(r));
     m.set(0, 2, sin(r));
@@ -77,7 +77,7 @@ pub const fn rotation_y(r: f32) -> Matrix<4, 4> {
     m
 }
 
-pub const fn rotation_z(r: f32) -> Matrix<4, 4> {
+pub const fn rotation_z(r: Number) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(0, 0, cos(r));
     m.set(0, 1, -1.0 * sin(r));
@@ -87,7 +87,14 @@ pub const fn rotation_z(r: f32) -> Matrix<4, 4> {
     m
 }
 
-pub const fn shearing(x_y: f32, x_z: f32, y_x: f32, y_z: f32, z_x: f32, z_y: f32) -> Matrix<4, 4> {
+pub const fn shearing(
+    x_y: Number,
+    x_z: Number,
+    y_x: Number,
+    y_z: Number,
+    z_x: Number,
+    z_y: Number,
+) -> Matrix<4, 4> {
     let mut m = Matrix::identity();
     m.set(0, 1, x_y);
     m.set(0, 2, x_z);
@@ -240,8 +247,8 @@ mod tests {
             HALF_QUARTER * p,
             Point {
                 x: 0.0,
-                y: (2.0_f32).sqrt() / 2.0,
-                z: (2.0_f32).sqrt() / 2.0
+                y: sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0
             }
         );
         assert_eq!(
@@ -266,8 +273,8 @@ mod tests {
             inv * p,
             Point {
                 x: 0.0,
-                y: (2.0_f32).sqrt() / 2.0,
-                z: -1.0 * (2.0_f32).sqrt() / 2.0
+                y: sqrt(2.0) / 2.0,
+                z: -1.0 * sqrt(2.0) / 2.0
             }
         )
     }
@@ -283,9 +290,9 @@ mod tests {
         assert_eq!(
             HALF_QUARTER * p,
             Point {
-                x: (2.0_f32).sqrt() / 2.0,
+                x: sqrt(2.0) / 2.0,
                 y: 0.0,
-                z: (2.0_f32).sqrt() / 2.0
+                z: sqrt(2.0) / 2.0
             }
         );
         assert_eq!(
@@ -309,8 +316,8 @@ mod tests {
         assert_eq!(
             HALF_QUARTER * p,
             Point {
-                x: -1.0 * (2.0_f32).sqrt() / 2.0,
-                y: (2.0_f32).sqrt() / 2.0,
+                x: -1.0 * sqrt(2.0) / 2.0,
+                y: sqrt(2.0) / 2.0,
                 z: 0.0
             }
         );

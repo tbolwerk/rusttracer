@@ -4,14 +4,14 @@ use crate::tuples::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
-    data: [[f32; COLS]; ROWS],
+    data: [[Number; COLS]; ROWS],
 }
 
 impl<const ROWS: usize, const COLS: usize> Matrix<ROWS, COLS> {
-    pub const fn new(data: [[f32; COLS]; ROWS]) -> Self {
+    pub const fn new(data: [[Number; COLS]; ROWS]) -> Self {
         Self { data }
     }
-    pub const fn init(value: f32) -> Self {
+    pub const fn init(value: Number) -> Self {
         Self::new([[value; COLS]; ROWS])
     }
     pub const fn identity() -> Self {
@@ -25,10 +25,10 @@ impl<const ROWS: usize, const COLS: usize> Matrix<ROWS, COLS> {
         }
         result
     }
-    pub const fn get(&self, row: usize, col: usize) -> f32 {
+    pub const fn get(&self, row: usize, col: usize) -> Number {
         self.data[row][col]
     }
-    pub const fn set(&mut self, row: usize, col: usize, value: f32) -> () {
+    pub const fn set(&mut self, row: usize, col: usize, value: Number) -> () {
         self.data[row][col] = value;
     }
     pub const fn then(&self, b: Matrix<ROWS, COLS>) -> Matrix<ROWS, COLS> {
@@ -95,7 +95,7 @@ pub fn submatrix<const N: usize>(
     result
 }
 
-pub fn minor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+pub fn minor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> Number
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -103,7 +103,7 @@ where
     submatrix(a, row, col).determinant()
 }
 
-pub fn cofactor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> f32
+pub fn cofactor<const N: usize>(a: &Matrix<N, N>, row: usize, col: usize) -> Number
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -115,7 +115,7 @@ where
     }
 }
 
-fn determinant_of_n<const N: usize>(a: &Matrix<N, N>) -> f32
+fn determinant_of_n<const N: usize>(a: &Matrix<N, N>) -> Number
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -127,7 +127,7 @@ where
     result
 }
 
-pub fn determinant<const N: usize>(a: &Matrix<N, N>) -> f32
+pub fn determinant<const N: usize>(a: &Matrix<N, N>) -> Number
 where
     [(); N - 1]:,
     Matrix<{ N - 1 }, { N - 1 }>: Determinant,
@@ -166,27 +166,27 @@ where
 }
 
 pub trait Determinant {
-    fn determinant(&self) -> f32;
+    fn determinant(&self) -> Number;
 }
 
 impl Determinant for Matrix<1, 1> {
-    fn determinant(&self) -> f32 {
+    fn determinant(&self) -> Number {
         self.get(0, 0)
     }
 }
 
 impl Determinant for Matrix<2, 2> {
-    fn determinant(&self) -> f32 {
+    fn determinant(&self) -> Number {
         self.get(0, 0) * self.get(1, 1) - self.get(0, 1) * self.get(1, 0)
     }
 }
 impl Determinant for Matrix<3, 3> {
-    fn determinant(&self) -> f32 {
+    fn determinant(&self) -> Number {
         determinant_of_n(self)
     }
 }
 impl Determinant for Matrix<4, 4> {
-    fn determinant(&self) -> f32 {
+    fn determinant(&self) -> Number {
         determinant_of_n(self)
     }
 }

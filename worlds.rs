@@ -622,12 +622,12 @@ mod tests {
             },
             direction: Vector { 
                 x:0.0,
-                y:-2.0_f32.sqrt()/2.0,
-                z:2.0_f32.sqrt()/2.0
+                y:-sqrt(2.0)/2.0,
+                z:sqrt(2.0)/2.0
             }
         };
 
-        let i = Intersection::new(2.0_f32.sqrt(), 2);
+        let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.reflected_color(&comps, 1);
         assert_eq!(color, Color{r:0.19032, g:0.2379,b:0.14274});
@@ -643,9 +643,9 @@ mod tests {
         w.objects.append(&mut vec![shape]);
         let r = Ray {
             origin: Point {x: 0.0, y:0.0, z:-3.0},
-            direction: Vector {x:0.0, y:-2.0_f32.sqrt()/2.0,z:2.0_f32.sqrt()/2.0}
+            direction: Vector {x:0.0, y:-sqrt(2.0)/2.0,z:sqrt(2.0)/2.0}
         };
-        let i = Intersection::new(2.0_f32.sqrt(), 2);
+        let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.shade_hit(comps, 1);
         assert_eq!(color, Color {
@@ -725,13 +725,13 @@ mod tests {
 
         let r = Ray {
             origin: Point {
-                x:0.0,y:0.0,z:2.0_f32.sqrt()/2.0
+                x:0.0,y:0.0,z:sqrt(2.0)/2.0
             },
             direction: Vector {
                 x: 0.0,y:1.0,z:0.0
             }
         };
-        let xs = Intersections::new(vec![Intersection::new(-2.0_f32.sqrt()/2.0, 0), Intersection::new(2.0_f32.sqrt()/2.0, 0)]);
+        let xs = Intersections::new(vec![Intersection::new(-sqrt(2.0)/2.0, 0), Intersection::new(sqrt(2.0)/2.0, 0)]);
         let comps = xs[1].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 5);
         assert_eq!(c, Color {r:0.0, g:0.0, b:0.0});
@@ -789,11 +789,11 @@ mod tests {
             },
             direction: Vector {
                 x:0.0,
-                y:-2.0_f32.sqrt()/2.0,
-                z:2.0_f32.sqrt()/2.0,
+                y:-sqrt(2.0)/2.0,
+                z:sqrt(2.0)/2.0,
             }
         };
-        let xs = Intersections::new(vec![Intersection::new(2.0_f32.sqrt(),2)]);
+        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0),2)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let color = w.shade_hit(comps, 5);
         assert_eq!(color, Color {
@@ -826,11 +826,11 @@ mod tests {
             },
             direction: Vector {
                 x:0.0,
-                y:-2.0_f32.sqrt()/2.0,
-                z:2.0_f32.sqrt()/2.0,
+                y:-sqrt(2.0)/2.0,
+                z:sqrt(2.0)/2.0,
             }
         };
-        let xs = Intersections::new(vec![Intersection::new(2.0_f32.sqrt(),2)]);
+        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0),2)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let color = w.shade_hit(comps, 5);
         assert_eq!(color, Color {

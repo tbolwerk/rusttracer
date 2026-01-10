@@ -8,11 +8,11 @@ use crate::worlds::World;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Intersection {
-    pub t: f32,
+    pub t: Number,
     pub object_id: usize,
 }
 pub struct Computations {
-    pub t: f32,
+    pub t: Number,
     pub object_id: usize,
     pub point: Point,
     pub eyev: Vector,
@@ -20,13 +20,13 @@ pub struct Computations {
     pub inside: bool,
     pub over_point: Point,
     pub reflectv: Vector,
-    pub n1: f32,
-    pub n2: f32,
+    pub n1: Number,
+    pub n2: Number,
     pub under_point: Point,
 }
 
 impl Computations {
-    pub fn schlick(&self) -> f32 {
+    pub fn schlick(&self) -> Number {
         let mut cos = self.eyev.dot(self.normalv);
 
         if self.n1 > self.n2 {
@@ -79,12 +79,11 @@ impl Intersection {
             }
         }
         let point = ray.position(self.t);
-        let mut inside = false;
         let object = &world.objects[self.object_id];
         let mut normalv = object.normal_at(&point);
         let eyev = -ray.direction;
-        if normalv.dot(eyev) < 0.0 {
-            inside = true;
+        let inside = normalv.dot(eyev) < 0.0;
+        if inside {
             normalv = -normalv;
         }
         let over_point = point + normalv * EPSILON;
@@ -101,7 +100,7 @@ impl Intersection {
             reflectv: reflectv,
             n1: n1,
             n2: n2,
-            under_point,
+            under_point: under_point,
         }
     }
 }
@@ -170,7 +169,7 @@ impl Index<usize> for Intersections {
     }
 }
 impl Intersection {
-    pub const fn new(t: f32, object_id: usize) -> Self {
+    pub const fn new(t: Number, object_id: usize) -> Self {
         Self { t, object_id }
     }
 }
@@ -436,7 +435,7 @@ mod tests {
             origin: Point {
                 x: 0.0,
                 y: 0.0,
-                z: 2.0_f32.sqrt() / 2.0,
+                z: sqrt(2.0) / 2.0,
             },
             direction: Vector {
                 x: 0.0,
@@ -445,8 +444,8 @@ mod tests {
             },
         };
         let xs = Intersections::new(vec![
-            Intersection::new(-2.0_f32.sqrt() / 2.0, 0),
-            Intersection::new(2.0_f32.sqrt() / 2.0, 0),
+            Intersection::new(-sqrt(2.0) / 2.0, 0),
+            Intersection::new(sqrt(2.0) / 2.0, 0),
         ]);
         let mut w = World::default();
         w.objects = vec![shape];

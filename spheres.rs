@@ -10,7 +10,7 @@ use crate::tuples::*;
 #[derive(Debug, PartialEq, Clone)]
 pub struct Sphere {
     pub origin: Point,
-    pub radius: f32,
+    pub radius: Number,
     pub transform: TransformData,
     pub material: Material,
 }
@@ -285,16 +285,16 @@ mod tests {
     fn the_normal_on_a_sphere_at_a_nonaxial_point() {
         let s = Sphere::unit();
         let n = s.local_normal_at(&Point {
-            x: 3.0_f32.sqrt() / 3.0,
-            y: 3.0_f32.sqrt() / 3.0,
-            z: 3.0_f32.sqrt() / 3.0,
+            x: sqrt(3.0) / 3.0,
+            y: sqrt(3.0) / 3.0,
+            z: sqrt(3.0) / 3.0,
         });
         assert_eq!(
             n,
             Vector {
-                x: 3.0_f32.sqrt() / 3.0,
-                y: 3.0_f32.sqrt() / 3.0,
-                z: 3.0_f32.sqrt() / 3.0,
+                x: sqrt(3.0) / 3.0,
+                y: sqrt(3.0) / 3.0,
+                z: sqrt(3.0) / 3.0,
             }
         );
     }
@@ -302,9 +302,9 @@ mod tests {
     fn the_normal_is_a_normalized_vector() {
         let s = Sphere::unit();
         let n = s.local_normal_at(&Point {
-            x: 3.0_f32.sqrt() / 3.0,
-            y: 3.0_f32.sqrt() / 3.0,
-            z: 3.0_f32.sqrt() / 3.0,
+            x: sqrt(3.0) / 3.0,
+            y: sqrt(3.0) / 3.0,
+            z: sqrt(3.0) / 3.0,
         });
         assert_eq!(n, n.normalize());
     }
@@ -335,8 +335,8 @@ mod tests {
         s.set_transform(M);
         let n = s.normal_at(&Point {
             x: 0.0,
-            y: 2.0_f32.sqrt() / 2.0,
-            z: -2.0_f32.sqrt() / 2.0,
+            y: sqrt(2.0) / 2.0,
+            z: -sqrt(2.0) / 2.0,
         });
         assert_eq!(
             n,

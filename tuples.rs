@@ -1,4 +1,4 @@
-pub const EPSILON: f32 = 0.01;
+pub const EPSILON: Number = 0.01;
 
 use std::ops::Add;
 use std::ops::Div;
@@ -6,21 +6,27 @@ use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
 
+pub type Number = f32;
+
+pub fn sqrt(x: Number) -> Number {
+    x.sqrt()
+}
+
 pub trait Tuple {
-    fn x(&self) -> f32;
-    fn y(&self) -> f32;
-    fn z(&self) -> f32;
-    fn w(&self) -> f32;
-    fn set_x(&mut self, value: f32) -> ();
-    fn set_y(&mut self, value: f32) -> ();
-    fn set_z(&mut self, value: f32) -> ();
+    fn x(&self) -> Number;
+    fn y(&self) -> Number;
+    fn z(&self) -> Number;
+    fn w(&self) -> Number;
+    fn set_x(&mut self, value: Number) -> ();
+    fn set_y(&mut self, value: Number) -> ();
+    fn set_z(&mut self, value: Number) -> ();
     fn is_point(&self) -> bool {
         self.w() == 1.0
     }
     fn is_vector(&self) -> bool {
         self.w() == 0.0
     }
-    fn get(&self, index: usize) -> f32 {
+    fn get(&self, index: usize) -> Number {
         match index {
             0 => self.x(),
             1 => self.y(),
@@ -29,7 +35,7 @@ pub trait Tuple {
             _ => panic!("Index out of bound {index}"),
         }
     }
-    fn set(&mut self, index: usize, value: f32) -> () {
+    fn set(&mut self, index: usize, value: Number) -> () {
         match index {
             0 => self.set_x(value),
             1 => self.set_y(value),
@@ -40,65 +46,65 @@ pub trait Tuple {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Vector {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
+    pub x: Number,
+    pub y: Number,
+    pub z: Number,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Point {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
+    pub x: Number,
+    pub y: Number,
+    pub z: Number,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
-    pub r: f32,
-    pub g: f32,
-    pub b: f32,
+    pub r: Number,
+    pub g: Number,
+    pub b: Number,
 }
 impl Tuple for Vector {
-    fn x(&self) -> f32 {
+    fn x(&self) -> Number {
         self.x
     }
-    fn y(&self) -> f32 {
+    fn y(&self) -> Number {
         self.y
     }
-    fn z(&self) -> f32 {
+    fn z(&self) -> Number {
         self.z
     }
-    fn w(&self) -> f32 {
+    fn w(&self) -> Number {
         0.0
     }
-    fn set_x(&mut self, value: f32) -> () {
+    fn set_x(&mut self, value: Number) -> () {
         self.x = value;
     }
-    fn set_y(&mut self, value: f32) -> () {
+    fn set_y(&mut self, value: Number) -> () {
         self.y = value
     }
-    fn set_z(&mut self, value: f32) -> () {
+    fn set_z(&mut self, value: Number) -> () {
         self.z = value;
     }
 }
 impl Tuple for Point {
-    fn x(&self) -> f32 {
+    fn x(&self) -> Number {
         self.x
     }
-    fn y(&self) -> f32 {
+    fn y(&self) -> Number {
         self.y
     }
-    fn z(&self) -> f32 {
+    fn z(&self) -> Number {
         self.z
     }
-    fn w(&self) -> f32 {
+    fn w(&self) -> Number {
         1.0
     }
-    fn set_x(&mut self, value: f32) -> () {
+    fn set_x(&mut self, value: Number) -> () {
         self.x = value;
     }
-    fn set_y(&mut self, value: f32) -> () {
+    fn set_y(&mut self, value: Number) -> () {
         self.y = value;
     }
-    fn set_z(&mut self, value: f32) -> () {
+    fn set_z(&mut self, value: Number) -> () {
         self.z = value;
     }
 }
@@ -173,9 +179,9 @@ impl Neg for Vector {
     }
 }
 
-impl Mul<f32> for Point {
+impl Mul<Number> for Point {
     type Output = Point;
-    fn mul(self, rhs: f32) -> Self::Output {
+    fn mul(self, rhs: Number) -> Self::Output {
         Point {
             x: self.x() * rhs,
             y: self.y() * rhs,
@@ -183,9 +189,9 @@ impl Mul<f32> for Point {
         }
     }
 }
-impl Mul<f32> for Vector {
+impl Mul<Number> for Vector {
     type Output = Vector;
-    fn mul(self, rhs: f32) -> Self::Output {
+    fn mul(self, rhs: Number) -> Self::Output {
         Vector {
             x: self.x() * rhs,
             y: self.y() * rhs,
@@ -193,9 +199,9 @@ impl Mul<f32> for Vector {
         }
     }
 }
-impl Mul<f32> for Color {
+impl Mul<Number> for Color {
     type Output = Color;
-    fn mul(self, rhs: f32) -> Self::Output {
+    fn mul(self, rhs: Number) -> Self::Output {
         Color {
             r: self.r * rhs,
             g: self.g * rhs,
@@ -233,9 +239,9 @@ impl Sub<Color> for Color {
         }
     }
 }
-impl Div<f32> for Point {
+impl Div<Number> for Point {
     type Output = Point;
-    fn div(self, rhs: f32) -> Self::Output {
+    fn div(self, rhs: Number) -> Self::Output {
         Point {
             x: self.x() / rhs,
             y: self.y() / rhs,
@@ -243,9 +249,9 @@ impl Div<f32> for Point {
         }
     }
 }
-impl Div<f32> for Vector {
+impl Div<Number> for Vector {
     type Output = Vector;
-    fn div(self, rhs: f32) -> Self::Output {
+    fn div(self, rhs: Number) -> Self::Output {
         Vector {
             x: self.x() / rhs,
             y: self.y() / rhs,
@@ -255,8 +261,8 @@ impl Div<f32> for Vector {
 }
 
 impl Vector {
-    pub fn magnitude(self) -> f32 {
-        (self.x().powi(2) + self.y().powi(2) + self.z().powi(2)).sqrt()
+    pub fn magnitude(self) -> Number {
+        sqrt(self.x().powi(2) + self.y().powi(2) + self.z().powi(2))
     }
     pub fn normalize(self) -> Vector {
         Vector {
@@ -265,7 +271,7 @@ impl Vector {
             z: self.z() / self.magnitude(),
         }
     }
-    pub fn dot(self, other: Vector) -> f32 {
+    pub fn dot(self, other: Vector) -> Number {
         self.x() * other.x() + self.y() * other.y() + self.z() * other.z()
     }
     pub fn cross(self, other: Vector) -> Vector {
@@ -276,7 +282,7 @@ impl Vector {
         }
     }
     pub fn reflect(self, normal: Vector) -> Vector {
-        self - (normal * (2.0_f32 * self.dot(normal)))
+        self - (normal * (2.0 * self.dot(normal)))
     }
 }
 
@@ -483,7 +489,7 @@ mod tests {
         );
     }
 
-    fn construct_point_and_vector(x: f32, y: f32, z: f32) -> (Point, Vector) {
+    fn construct_point_and_vector(x: Number, y: Number, z: Number) -> (Point, Vector) {
         let a = Point { x, y, z };
         let b = Vector { x, y, z };
         (a, b)
@@ -603,7 +609,7 @@ mod tests {
             y: 2.0,
             z: 3.0,
         };
-        assert_eq!(v.magnitude(), (14.0_f32).sqrt());
+        assert_eq!(v.magnitude(), sqrt(14.0));
     }
     #[test]
     fn computing_the_magnitude_of_vector_neg_1_2_3() {
@@ -612,7 +618,7 @@ mod tests {
             y: -2.0,
             z: -3.0,
         };
-        assert_eq!(v.magnitude(), (14.0_f32).sqrt());
+        assert_eq!(v.magnitude(), sqrt(14.0));
     }
     #[test]
     fn normalizing_vector_4_0_0_gives_1_0_0() {
@@ -729,8 +735,8 @@ mod tests {
             z: 0.0,
         };
         let n = Vector {
-            x: 2.0_f32.sqrt() / 2.0,
-            y: 2.0_f32.sqrt() / 2.0,
+            x: sqrt(2.0) / 2.0,
+            y: sqrt(2.0) / 2.0,
             z: 0.0,
         };
         let r = v.reflect(n);

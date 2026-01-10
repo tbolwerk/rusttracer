@@ -51,11 +51,10 @@ fn chapter11() {
     let mut floor = Shape::plane();
     let mut floor_material = Material::default();
     floor_material.set_color(Color {
-        r: 1.0,
-        g: 0.9,
-        b: 0.9,
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
     });
-    floor_material.set_specular(0.0);
     floor.set_material(floor_material);
 
     let middle = Shape::with(
@@ -63,13 +62,16 @@ fn chapter11() {
         translation(-0.5, 1.0, 0.5),
         Material::glass(),
     );
-    let mut right = Shape::glass_sphere();
-    const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
-    right.set_transform(RIGHT_TRANSFORM);
-    let mut left = Shape::glass_sphere();
-    const LEFT_TRANSFORMATION: Matrix<4, 4> =
-        scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
-    left.set_transform(LEFT_TRANSFORMATION);
+    let right = Shape::with(
+        Shape::glass_sphere,
+        scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5)),
+        Material::glass(),
+    );
+    let left = Shape::with(
+        Shape::glass_sphere,
+        scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75)),
+        Material::glass(),
+    );
 
     world.objects = vec![floor, middle, right, left];
 
@@ -487,13 +489,13 @@ fn chapter6() {
     let wall_z = 10.0;
     let wall_size = 7.0;
     const CANVAS_PIXELS: usize = 1000;
-    let pixel_size = wall_size / CANVAS_PIXELS as f32;
+    let pixel_size = wall_size / CANVAS_PIXELS as Number;
     let half = wall_size / 2.0;
     let mut canvas: Canvas<CANVAS_PIXELS, CANVAS_PIXELS> = Canvas::new(255);
     for y in 0..CANVAS_PIXELS {
-        let world_y = half - pixel_size * y as f32;
+        let world_y = half - pixel_size * y as Number;
         for x in 0..CANVAS_PIXELS {
-            let world_x = -half + pixel_size * x as f32;
+            let world_x = -half + pixel_size * x as Number;
             let current_position = Point {
                 x: world_x,
                 y: world_y,
@@ -530,11 +532,11 @@ fn chapter5() {
         y: 0.0,
         z: -5.0,
     };
-    const WALL_Z: f32 = 10.0;
-    const WALL_SIZE: f32 = 7.0;
+    const WALL_Z: Number = 10.0;
+    const WALL_SIZE: Number = 7.0;
     const CANVAS_PIXELS: usize = 100;
-    const PIXEL_SIZE: f32 = WALL_SIZE / CANVAS_PIXELS as f32;
-    const HALF: f32 = WALL_SIZE / 2.0;
+    const PIXEL_SIZE: Number = WALL_SIZE / CANVAS_PIXELS as Number;
+    const HALF: Number = WALL_SIZE / 2.0;
     let mut canvas: Canvas<CANVAS_PIXELS, CANVAS_PIXELS> = Canvas::new(255);
     let color = Pixel::red();
     let mut shape = Shape::sphere();
@@ -546,9 +548,9 @@ fn chapter5() {
     shape.set_transform(TRANSFORM);
 
     for y in 0..CANVAS_PIXELS - 1 {
-        let world_y = HALF - PIXEL_SIZE * y as f32;
+        let world_y = HALF - PIXEL_SIZE * y as Number;
         for x in 0..CANVAS_PIXELS - 1 {
-            let world_x = -HALF + PIXEL_SIZE * x as f32;
+            let world_x = -HALF + PIXEL_SIZE * x as Number;
             let position = Point {
                 x: world_x,
                 y: world_y,
@@ -590,12 +592,12 @@ fn chapter4() -> Result<(), ()> {
     };
 
     const HOURS_COUNT: usize = 12;
-    const STEP_SIZE: f32 = 360.0 / HOURS_COUNT as f32;
+    const STEP_SIZE: Number = 360.0 / HOURS_COUNT as Number;
     const HOURS: [Matrix<4, 4>; HOURS_COUNT] = {
         let mut hours: [Matrix<4, 4>; HOURS_COUNT] = [Matrix::identity(); HOURS_COUNT];
         let mut i = 0;
         while i < HOURS_COUNT {
-            let angle = radians((i as f32) * STEP_SIZE);
+            let angle = radians((i as Number) * STEP_SIZE);
             hours[i] = rotation_y(angle).then(SCALE).then(TRANSLATE);
             i += 1;
         }
@@ -605,8 +607,8 @@ fn chapter4() -> Result<(), ()> {
     // Iterate over compile-time calculated transform matrix
     for transform in HOURS.iter() {
         let p = *transform * start;
-        let x = p.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
-        let z = p.z().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
+        let x = p.x().round().clamp(0.0, (WIDTH - 1) as Number) as usize;
+        let z = p.z().round().clamp(0.0, (HEIGHT - 1) as Number) as usize;
         c.set(Pixel::white(), x, z);
     }
     let filename = "chapter4.ppm";
@@ -688,8 +690,8 @@ fn chapter1() -> std::io::Result<()> {
     let mut canvas: Canvas<HEIGHT, WIDTH> = Canvas::new(255);
 
     for position in positions {
-        let y = position.y().round().clamp(0.0, (HEIGHT - 1) as f32) as usize;
-        let x = position.x().round().clamp(0.0, (WIDTH - 1) as f32) as usize;
+        let y = position.y().round().clamp(0.0, (HEIGHT - 1) as Number) as usize;
+        let x = position.x().round().clamp(0.0, (WIDTH - 1) as Number) as usize;
         canvas.set(Pixel::white(), HEIGHT - y, x);
     }
 

@@ -339,8 +339,8 @@ mod tests {
         s.set_transform(rotation_z(PI / 5.0).then(scaling(1.0, 0.5, 1.0)));
         let n = s.normal_at(&Point {
             x: 0.0,
-            y: 2.0_f32.sqrt() / 2.0,
-            z: -2.0_f32.sqrt() / 2.0,
+            y: sqrt(2.0) / 2.0,
+            z: -sqrt(2.0) / 2.0,
         });
         assert_eq!(
             n,

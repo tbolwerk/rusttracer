@@ -11,17 +11,17 @@ use rayon::prelude::*;
 use std::ops::Div;
 
 pub struct Camera<const HSIZE: usize, const VSIZE: usize> {
-    field_of_view: f32,
+    field_of_view: Number,
     transform: Matrix<4, 4>,
     inverse_transform: Option<Matrix<4, 4>>,
-    pixel_size: f32,
-    half_width: f32,
-    half_height: f32,
+    pixel_size: Number,
+    half_width: Number,
+    half_height: Number,
 }
 impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
-    pub fn new(field_of_view: f32) -> Self {
+    pub fn new(field_of_view: Number) -> Self {
         let half_view = field_of_view.div(2.0).tan();
-        let aspect = HSIZE as f32 / VSIZE as f32;
+        let aspect = HSIZE as Number / VSIZE as Number;
 
         let (half_width, half_height) = if aspect >= 1.0 {
             (half_view, half_view / aspect)
@@ -29,7 +29,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             (half_view * aspect, half_view)
         };
 
-        let pixel_size = (half_width * 2.0) / HSIZE as f32;
+        let pixel_size = (half_width * 2.0) / HSIZE as Number;
 
         Self {
             field_of_view: field_of_view,
@@ -41,8 +41,8 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         }
     }
     pub fn ray_for_pixel(&self, px: usize, py: usize) -> Ray {
-        let xoffset = (px as f32 + 0.5) * self.pixel_size;
-        let yoffset = (py as f32 + 0.5) * self.pixel_size;
+        let xoffset = (px as Number + 0.5) * self.pixel_size;
+        let yoffset = (py as Number + 0.5) * self.pixel_size;
         let world_x = self.half_width - xoffset;
         let world_y = self.half_height - yoffset;
         let mut pixel = Point {
@@ -184,9 +184,9 @@ mod tests {
         assert_eq!(
             r.direction,
             Vector {
-                x: 2.0_f32.sqrt() / 2.0,
+                x: sqrt(2.0) / 2.0,
                 y: 0.0,
-                z: -2.0_f32.sqrt() / 2.0,
+                z: -sqrt(2.0) / 2.0,
             }
         )
     }

@@ -8,26 +8,26 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
     pub color: Color,
-    pub ambient: f32,
-    pub diffuse: f32,
-    pub specular: f32,
-    pub shininess: f32,
+    pub ambient: Number,
+    pub diffuse: Number,
+    pub specular: Number,
+    pub shininess: Number,
     pub pattern: Option<Pattern>,
-    pub reflective: f32,
-    pub transparency: f32,
-    pub refractive_index: f32,
+    pub reflective: Number,
+    pub transparency: Number,
+    pub refractive_index: Number,
 }
 
 impl Material {
     pub const fn new(
         color: Color,
-        ambient: f32,
-        diffuse: f32,
-        specular: f32,
-        shininess: f32,
-        reflective: f32,
-        transparency: f32,
-        refractive_index: f32,
+        ambient: Number,
+        diffuse: Number,
+        specular: Number,
+        shininess: Number,
+        reflective: Number,
+        transparency: Number,
+        refractive_index: Number,
     ) -> Self {
         Self {
             color,
@@ -64,41 +64,41 @@ impl Material {
                 g: 1.0,
                 b: 1.0,
             },
-            ambient: 1.0,
-            diffuse: 1.0,
+            ambient: 0.0,
+            diffuse: 0.0,
             specular: 1.0,
             shininess: 300.0,
             pattern: None,
-            reflective: 0.9,
-            transparency: 0.0,
-            refractive_index: 0.5,
+            reflective: 0.1,
+            transparency: 1.0,
+            refractive_index: 1.5,
         }
     }
     pub const fn set_color(&mut self, color: Color) -> () {
         self.color = color
     }
-    pub const fn set_ambient(&mut self, ambient: f32) -> () {
+    pub const fn set_ambient(&mut self, ambient: Number) -> () {
         self.ambient = ambient
     }
-    pub const fn set_diffuse(&mut self, diffuse: f32) -> () {
+    pub const fn set_diffuse(&mut self, diffuse: Number) -> () {
         self.diffuse = diffuse
     }
-    pub const fn set_specular(&mut self, specular: f32) -> () {
+    pub const fn set_specular(&mut self, specular: Number) -> () {
         self.specular = specular
     }
-    pub const fn set_shininess(&mut self, shininess: f32) -> () {
+    pub const fn set_shininess(&mut self, shininess: Number) -> () {
         self.shininess = shininess
     }
     pub const fn set_pattern(&mut self, pattern: Pattern) -> () {
         self.pattern = Some(pattern)
     }
-    pub const fn set_reflective(&mut self, reflective: f32) -> () {
+    pub const fn set_reflective(&mut self, reflective: Number) -> () {
         self.reflective = reflective
     }
-    pub const fn set_transparency(&mut self, transparency: f32) -> () {
+    pub const fn set_transparency(&mut self, transparency: Number) -> () {
         self.transparency = transparency
     }
-    pub const fn set_refractive_index(&mut self, refractive_index: f32) -> () {
+    pub const fn set_refractive_index(&mut self, refractive_index: Number) -> () {
         self.refractive_index = refractive_index
     }
 }
@@ -228,8 +228,8 @@ mod tests {
 
         let eyev = Vector {
             x: 0.0,
-            y: 2.0_f32.sqrt() / 2.0,
-            z: 2.0_f32.sqrt() / 2.0,
+            y: sqrt(2.0) / 2.0,
+            z: sqrt(2.0) / 2.0,
         };
         let normalv = Vector {
             x: 0.0,
@@ -304,8 +304,8 @@ mod tests {
 
         let eyev = Vector {
             x: 0.0,
-            y: -(2.0_f32.sqrt() / 2.0),
-            z: -(2.0_f32.sqrt() / 2.0),
+            y: -(sqrt(2.0) / 2.0),
+            z: -(sqrt(2.0) / 2.0),
         };
         let normalv = Vector {
             x: 0.0,
@@ -514,18 +514,18 @@ mod tests {
             },
             direction: Vector {
                 x: 0.0,
-                y: -(2.0_f32.sqrt() / 2.0),
-                z: 2.0_f32.sqrt() / 2.0,
+                y: -(sqrt(2.0) / 2.0),
+                z: sqrt(2.0) / 2.0,
             },
         };
-        let i = Intersection::new(2.0_f32.sqrt(), 0);
+        let i = Intersection::new(sqrt(2.0), 0);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         assert_eq!(
             comps.reflectv,
             Vector {
                 x: 0.0,
-                y: 2.0_f32.sqrt() / 2.0,
-                z: 2.0_f32.sqrt() / 2.0
+                y: sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0
             }
         )
     }
