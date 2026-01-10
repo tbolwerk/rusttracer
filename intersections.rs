@@ -472,9 +472,8 @@ mod tests {
         let mut w = World::default();
         w.objects = vec![shape];
         let comps = xs[1].prepare_computations(&r, &w, &xs);
-        // Round two digits precision to keep it aligned with the book.
-        let reflectance = (comps.schlick() * 100.0).round() / 100.0;
-        assert_eq!(reflectance, 0.04);
+        let reflectance = comps.schlick();
+        assert_almost_eq!(reflectance, 0.04);
     }
     #[test]
     fn the_schlick_approximation_with_small_angle_and_n2_gt_n1() {
@@ -495,8 +494,7 @@ mod tests {
         let mut w = World::default();
         w.objects = vec![shape];
         let comps = xs[0].prepare_computations(&r, &w, &xs);
-        // Round five digits precision to keep it aligned with the book.
-        let reflectance = (comps.schlick() * 100000.0).round() / 100000.0;
-        assert_eq!(reflectance, 0.48873);
+        let reflectance = comps.schlick();
+        assert_almost_eq!(reflectance, 0.48873);
     }
 }
