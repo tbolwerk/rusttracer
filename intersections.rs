@@ -6,7 +6,7 @@ use crate::shapes::*;
 use crate::tuples::*;
 use crate::worlds::World;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub struct Intersection {
     pub t: Number,
     pub object_id: usize,
@@ -56,7 +56,8 @@ impl Intersection {
         let mut n2 = 1.0;
         let mut containers: Vec<usize> = vec![];
         for i in xs.intersections.iter() {
-            if i == self {
+            let is_hit = i.t == self.t;
+            if is_hit {
                 match containers.last() {
                     None => (),
                     Some(object_id) => {
@@ -69,7 +70,7 @@ impl Intersection {
             } else {
                 containers.push(i.object_id);
             }
-            if i == self {
+            if is_hit {
                 match containers.last() {
                     None => (),
                     Some(object_id) => {
@@ -102,6 +103,12 @@ impl Intersection {
             n2: n2,
             under_point: under_point,
         }
+    }
+}
+impl PartialEq for Intersection {
+    fn eq(&self, other: &Self) -> bool {
+        // Objects must match exactly, and t must be within epsilon
+        self.object_id == other.object_id && (self.t - other.t).abs() < EPSILON
     }
 }
 impl Eq for Intersection {}
@@ -183,14 +190,12 @@ mod tests {
 
     #[test]
     fn an_intersection_encapsulates_t_and_object() {
-        const S: Shape = Shape::sphere();
         let i = Intersection::new(3.5, 0);
         assert_eq!(i.t, 3.5);
         assert_eq!(i.object_id, 0);
     }
     #[test]
     fn aggregating_intersections() {
-        const S: Shape = Shape::sphere();
         let i1 = Intersection::new(1.0, 0);
         let i2 = Intersection::new(2.0, 1);
         let xs = Intersections::new(vec![i1, i2]);
@@ -199,7 +204,6 @@ mod tests {
     }
     #[test]
     fn the_hit_when_all_intersections_have_positive_t() {
-        const S: Shape = Shape::sphere();
         let i1 = Intersection::new(1.0, 0);
         let i2 = Intersection::new(2.0, 1);
         let xs = Intersections::new(vec![i2, i1]);
@@ -208,7 +212,6 @@ mod tests {
     }
     #[test]
     fn the_hit_when_some_intersections_have_negative_t() {
-        const S: Shape = Shape::sphere();
         let i1 = Intersection::new(-1.0, 0);
         let i2 = Intersection::new(1.0, 1);
         let xs = Intersections::new(vec![i2, i1]);
@@ -217,7 +220,6 @@ mod tests {
     }
     #[test]
     fn the_hit_when_all_intersections_have_negative_t() {
-        const S: Shape = Shape::sphere();
         let i1 = Intersection::new(-2.0, 0);
         let i2 = Intersection::new(-1.0, 1);
         let xs = Intersections::new(vec![i2, i1]);
@@ -226,7 +228,6 @@ mod tests {
     }
     #[test]
     fn the_hit_is_always_the_lowest_nonnegative_intersection() {
-        const S: Shape = Shape::sphere();
         let i1 = Intersection::new(5.0, 0);
         let i2 = Intersection::new(7.0, 1);
         let i3 = Intersection::new(-3.0, 2);
