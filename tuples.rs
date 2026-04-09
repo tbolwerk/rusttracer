@@ -1,12 +1,12 @@
-pub const EPSILON: Number = 0.01;
-
+use std::f128;
 use std::ops::Add;
 use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
-
 pub type Number = f64;
+
+pub const EPSILON: Number = 1e-4;
 
 pub fn sqrt(x: Number) -> Number {
     x.sqrt()
@@ -16,7 +16,7 @@ macro_rules! assert_almost_eq {
     ($a: expr, $b: expr) => {
         assert!(
             ($a - $b).abs() <= $crate::tuples::EPSILON,
-            "assert_almost_eq failed: {} != {}",
+            "assert_almost_eq failed: {:?} != {:?}",
             $a,
             $b
         );

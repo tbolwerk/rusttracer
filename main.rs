@@ -1,4 +1,5 @@
 #![feature(generic_const_exprs)]
+#![feature(f128)]
 #![allow(incomplete_features)]
 mod canvas;
 use std::str::Matches;
@@ -45,48 +46,80 @@ fn main() -> Result<(), ()> {
     let _ = chapter11();
     Ok(())
 }
-
 fn chapter11() {
-    let mut world = World::default();
+    let mut world = World::new();
+
+    // Floor - glass material
     let mut floor = Shape::plane();
+    floor.set_transform(scaling(10.0, 0.01, 10.0));
     let mut floor_material = Material::default();
+    floor_material.set_transparency(0.9);
+    floor_material.set_reflective(0.9);
+    floor_material.set_diffuse(0.1);
+    floor_material.set_ambient(0.1);
+    floor_material.set_specular(1.0);
+    floor_material.set_shininess(300.0);
     floor_material.set_color(Color {
-        r: 0.0,
-        g: 0.0,
-        b: 1.0,
+        r: 1.0,
+        g: 1.0,
+        b: 0.9,
     });
     floor.set_material(floor_material);
 
-    let middle = Shape::with(
-        Shape::glass_sphere,
-        translation(-0.5, 1.0, 0.5),
-        Material::glass(),
-    );
-    let right = Shape::with(
-        Shape::glass_sphere,
-        scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5)),
-        Material::glass(),
-    );
-    let left = Shape::with(
-        Shape::glass_sphere,
-        scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75)),
-        Material::glass(),
-    );
+    // Middle sphere
+    let mut middle = Shape::sphere();
+    middle.set_transform(translation(-0.5, 1.0, 0.5));
+    let mut middle_material = Material::default();
+    middle_material.set_color(Color {
+        r: 0.1,
+        g: 1.0,
+        b: 0.5,
+    });
+    middle_material.set_diffuse(0.7);
+    middle_material.set_specular(0.3);
+    middle_material.set_reflective(0.3);
+    middle.set_material(middle_material);
+
+    // Right sphere
+    let mut right = Shape::sphere();
+    right.set_transform(scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5)));
+    let mut right_material = Material::default();
+    right_material.set_color(Color {
+        r: 0.5,
+        g: 1.0,
+        b: 0.1,
+    });
+    right_material.set_diffuse(0.7);
+    right_material.set_specular(0.3);
+    right.set_material(right_material);
+
+    // Left sphere
+    let mut left = Shape::sphere();
+    left.set_transform(scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75)));
+    let mut left_material = Material::default();
+    left_material.set_color(Color {
+        r: 1.0,
+        g: 0.8,
+        b: 0.1,
+    });
+    left_material.set_diffuse(0.7);
+    left_material.set_specular(0.3);
+    left.set_material(left_material);
 
     world.objects = vec![floor, middle, right, left];
 
-    let light_position = Point {
-        x: -10.0,
-        y: 10.0,
-        z: -10.0,
-    };
-    let light_color = Color {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-    };
-    let light = Light::Point(PointLight::new(light_position, light_color));
-    world.light = Some(light);
+    world.light = Some(Light::Point(PointLight::new(
+        Point {
+            x: -10.0,
+            y: 10.0,
+            z: -10.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    )));
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
@@ -106,6 +139,7 @@ fn chapter11() {
             z: 0.0,
         },
     ));
+
     let canvas = camera.render_par(world);
     let filename = "chapter11.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);

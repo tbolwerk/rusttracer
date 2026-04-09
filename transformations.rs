@@ -1,9 +1,43 @@
 use crate::matrices::{inverse, Matrix};
 use crate::tuples::*;
 
-pub const PI: Number = 3.14159265;
-const TWO_PI: Number = 6.28318531;
+pub const PI: Number = 3.1415926535897932384626433832795028841971693993751058;
+const TWO_PI: Number = PI * 2.0;
 
+pub const fn sin(x: Number) -> Number {
+    let x = normalize(x);
+    let x2 = x * x;
+    let mut result = x;
+    let mut term = x;
+    let mut n = 1.0;
+
+    // For f128, 30 iterations is enough to reach ~1e-35 precision
+    let mut i = 0;
+    while i < 30 {
+        term *= -x2 / ((2.0 * n) * (2.0 * n + 1.0));
+        result += term;
+        n += 1.0;
+        i += 1;
+    }
+    result
+}
+
+pub const fn cos(x: Number) -> Number {
+    let x = normalize(x);
+    let x2 = x * x;
+    let mut result = 1.0;
+    let mut term = 1.0;
+    let mut n = 1.0;
+
+    let mut i = 0;
+    while i < 30 {
+        term *= -x2 / ((2.0 * n - 1.0) * (2.0 * n));
+        result += term;
+        n += 1.0;
+        i += 1;
+    }
+    result
+}
 pub const fn radians(degree: Number) -> Number {
     degree * PI / 180.0
 }
@@ -34,27 +68,6 @@ const fn normalize(mut x: Number) -> Number {
         x += TWO_PI;
     }
     x
-}
-
-const fn cos(x: Number) -> Number {
-    let x = normalize(x);
-    let x2 = x * x;
-    let x4 = x2 * x2;
-    let x6 = x4 * x2;
-    let x8 = x4 * x4;
-    // Taylor series: 1 - x^2/2! + x^4/4! - x^6/6! + x^8/8!
-    1.0 - x2 / 2.0 + x4 / 24.0 - x6 / 720.0 + x8 / 40320.0
-}
-
-const fn sin(x: Number) -> Number {
-    let x = normalize(x);
-    let x2 = x * x;
-    let x3 = x * x2;
-    let x5 = x3 * x2;
-    let x7 = x5 * x2;
-    let x9 = x7 * x2;
-    // Taylor series: x - x^3/3! + x^5/5! - x^7/7! + x^9/9!
-    x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0 + x9 / 362880.0
 }
 
 pub const fn rotation_x(r: Number) -> Matrix<4, 4> {

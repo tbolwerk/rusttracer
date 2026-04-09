@@ -7,11 +7,11 @@ use crate::lights::*;
 use crate::materials::lightning;
 use crate::materials::Material;
 use crate::matrices::Matrix;
+use crate::patterns::*;
 use crate::rays::Ray;
 use crate::shapes::*;
 use crate::transformations::*;
 use crate::tuples::*;
-use crate::patterns::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
@@ -55,7 +55,7 @@ impl World {
         };
         let reflected = self.reflected_color(&comps, remaining);
         let refracted = self.refracted_color(&comps, remaining);
-        
+
         let material = object.get_material();
         if material.reflective > 0.0 && material.transparency > 0.0 {
             let reflectance = comps.schlick();
@@ -71,7 +71,10 @@ impl World {
                 g: 0.0,
                 b: 0.0,
             },
-            Some(intersection) => self.shade_hit(intersection.prepare_computations(&ray, self, &xs), remaining),
+            Some(intersection) => self.shade_hit(
+                intersection.prepare_computations(&ray, self, &xs),
+                remaining,
+            ),
         }
     }
     pub fn is_shadowed(&self, point: Point) -> bool {
@@ -91,23 +94,19 @@ impl World {
 
                 match intersections.hit() {
                     None => false,
-                    Some(intersection) => intersection.t < distance,
+                    Some(intersection) => intersection.t > EPSILON && intersection.t < distance,
                 }
             }
         }
     }
     pub fn reflected_color(&self, comps: &Computations, remaining: usize) -> Color {
-        if remaining <= 0 {
-            return Color {
-                r:0.0,
-                g:0.0,
-                b:0.0
-            }
-        }
         let material = self.objects[comps.object_id].get_material();
-        if material.reflective == 0.0 {
-
-        return Color {r:0.0, g:0.0, b:0.0};
+        if material.reflective == 0.0 || remaining <= 0 {
+            return Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            };
         }
         let reflect_ray = Ray {
             origin: comps.over_point,
@@ -119,21 +118,29 @@ impl World {
     pub fn refracted_color(&self, comps: &Computations, remaining: usize) -> Color {
         let object = &self.objects[comps.object_id];
         if object.get_material().transparency == 0.0 || remaining <= 0 {
-            return Color {r:0.0,g:0.0,b:0.0};
+            return Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            };
         }
         let n_ratio = comps.n1 / comps.n2;
         let cos_i = comps.eyev.dot(comps.normalv);
         let sin2_t = n_ratio.powi(2) * (1.0 - cos_i.powi(2));
         if sin2_t > 1.0 {
-             return Color {r:0.0,g:0.0,b:0.0};
+            return Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            };
         }
         let cos_t = (1.0 - sin2_t).sqrt();
         let direction = comps.normalv * (n_ratio * cos_i - cos_t) - comps.eyev * n_ratio;
         let refract_ray = Ray {
             origin: comps.under_point,
-            direction
+            direction,
         };
-        self.color_at(&refract_ray, remaining -1) * object.get_material().transparency
+        self.color_at(&refract_ray, remaining - 1) * object.get_material().transparency
     }
 }
 impl Default for World {
@@ -586,14 +593,14 @@ mod tests {
         let r = Ray {
             origin: Point {
                 x: 0.0,
-                y:0.0,
-                z:0.0
-            }, 
-            direction: Vector { 
-                x:0.0,
-                y:0.0,
-                z:1.0
-            }
+                y: 0.0,
+                z: 0.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
         };
         let mut second_object_material = w.objects[1].get_material();
         second_object_material.set_ambient(1.0);
@@ -601,7 +608,14 @@ mod tests {
         let i = Intersection::new(1.0, 1);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.reflected_color(&comps, 0);
-        assert_eq!(color, Color{r:0.0, g:0.0,b:0.0});
+        assert_eq!(
+            color,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0
+            }
+        );
     }
     #[test]
     fn the_reflected_color_for_a_reflective_material() {
@@ -609,7 +623,7 @@ mod tests {
         let mut shape = Shape::plane();
         let mut material = Material::default();
         material.set_reflective(0.5);
-        const TRANSFORM: Matrix<4,4> = Matrix::identity().then(translation(0.0,-1.0,0.0));
+        const TRANSFORM: Matrix<4, 4> = Matrix::identity().then(translation(0.0, -1.0, 0.0));
         shape.set_material(material);
         shape.set_transform(TRANSFORM);
         w.objects.append(&mut vec![shape]);
@@ -617,20 +631,27 @@ mod tests {
         let r = Ray {
             origin: Point {
                 x: 0.0,
-                y:0.0,
-                z:-3.0
+                y: 0.0,
+                z: -3.0,
             },
-            direction: Vector { 
-                x:0.0,
-                y:-sqrt(2.0)/2.0,
-                z:sqrt(2.0)/2.0
-            }
+            direction: Vector {
+                x: 0.0,
+                y: -sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0,
+            },
         };
 
         let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.reflected_color(&comps, 1);
-        assert_eq!(color, Color{r:0.19032, g:0.2379,b:0.14274});
+        assert_eq!(
+            color,
+            Color {
+                r: 0.19032,
+                g: 0.2379,
+                b: 0.14274
+            }
+        );
     }
     #[test]
     fn shade_hit_with_a_reflective_material() {
@@ -639,49 +660,80 @@ mod tests {
         let mut material = shape.get_material().clone();
         material.set_reflective(0.5);
         shape.set_material(material);
-        shape.set_transform(translation(0.0,-1.0,0.0));
+        shape.set_transform(translation(0.0, -1.0, 0.0));
         w.objects.append(&mut vec![shape]);
         let r = Ray {
-            origin: Point {x: 0.0, y:0.0, z:-3.0},
-            direction: Vector {x:0.0, y:-sqrt(2.0)/2.0,z:sqrt(2.0)/2.0}
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -3.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: -sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0,
+            },
         };
         let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.shade_hit(comps, 1);
-        assert_eq!(color, Color {
-            r: 0.87677,
-            g: 0.92436,
-            b:0.82918
-        })
+        assert_eq!(
+            color,
+            Color {
+                r: 0.87677,
+                g: 0.92436,
+                b: 0.82918
+            }
+        )
     }
     #[test]
     fn color_at_with_mutally_reflective_surfaces() {
         let mut w = World::default();
-        w.light = Some(Light::point_light(Point {x:0.0, y:0.0, z:0.0}, Color {r:1.0,g:1.0,b:1.0}));
-        
+        w.light = Some(Light::point_light(
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        ));
+
         let mut lower = Shape::plane();
         let mut lower_material = lower.get_material().clone();
         lower_material.set_reflective(1.0);
-        lower.set_transform(translation(0.0,-1.0,0.0));
+        lower.set_transform(translation(0.0, -1.0, 0.0));
         lower.set_material(lower_material);
         let mut upper = Shape::plane();
         let mut upper_material = upper.get_material().clone();
         upper_material.set_reflective(1.0);
-        upper.set_transform(translation(0.0,1.0,0.0));
+        upper.set_transform(translation(0.0, 1.0, 0.0));
         upper.set_material(upper_material);
         w.objects.append(&mut vec![lower, upper]);
         let r = Ray {
             origin: Point {
-                x: 0.0,y:0.0,z:0.0
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
             },
             direction: Vector {
-                x:0.0,y:1.0,z:0.0
-            }
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
         };
         let color = w.color_at(&r, 5);
-        assert_eq!(color, Color {
-            r:1.9,g:1.9,b:1.9
-        })
+        assert_eq!(
+            color,
+            Color {
+                r: 1.9,
+                g: 1.9,
+                b: 1.9
+            }
+        )
     }
     #[test]
     fn the_refracted_color_with_an_opaque_surface() {
@@ -689,82 +741,130 @@ mod tests {
         let shape = w.objects[0].clone();
         let r = Ray {
             origin: Point {
-                x:0.0,y:0.0,z:-5.0
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
             },
             direction: Vector {
-                x: 0.0,y:0.0,z:1.0
-            }
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
         };
         let xs = Intersections::new(vec![Intersection::new(4.0, 0), Intersection::new(6.0, 0)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 5);
-        assert_eq!(c, Color {r:0.0, g:0.0, b:0.0});
+        assert_eq!(
+            c,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0
+            }
+        );
     }
     #[test]
     fn the_refracted_color_at_the_maximum_recursive_depth() {
         let mut w = World::default();
-        w.objects[0] = Shape::glass_sphere(); 
+        w.objects[0] = Shape::glass_sphere();
 
         let r = Ray {
             origin: Point {
-                x:0.0,y:0.0,z:-5.0
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
             },
             direction: Vector {
-                x: 0.0,y:0.0,z:1.0
-            }
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
         };
         let xs = Intersections::new(vec![Intersection::new(4.0, 0), Intersection::new(6.0, 0)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 0);
-        assert_eq!(c, Color {r:0.0, g:0.0, b:0.0});
+        assert_eq!(
+            c,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0
+            }
+        );
     }
-  #[test]
+    #[test]
     fn the_refracted_color_under_total_internal_reflection() {
         let mut w = World::default();
-        w.objects[0] = Shape::glass_sphere(); 
+        w.objects[0] = Shape::glass_sphere();
 
         let r = Ray {
             origin: Point {
-                x:0.0,y:0.0,z:sqrt(2.0)/2.0
+                x: 0.0,
+                y: 0.0,
+                z: sqrt(2.0) / 2.0,
             },
             direction: Vector {
-                x: 0.0,y:1.0,z:0.0
-            }
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
         };
-        let xs = Intersections::new(vec![Intersection::new(-sqrt(2.0)/2.0, 0), Intersection::new(sqrt(2.0)/2.0, 0)]);
+        let xs = Intersections::new(vec![
+            Intersection::new(-sqrt(2.0) / 2.0, 0),
+            Intersection::new(sqrt(2.0) / 2.0, 0),
+        ]);
         let comps = xs[1].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 5);
-        assert_eq!(c, Color {r:0.0, g:0.0, b:0.0});
+        assert_eq!(
+            c,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0
+            }
+        );
     }
 
-  #[test]
+    #[test]
     fn the_refracted_color_with_a_refracted_ray() {
         let mut w = World::default();
         let mut a_material = Material::default();
         a_material.set_ambient(1.0);
         a_material.set_pattern(Pattern::test_pattern());
 
-        let a = Shape::with(
-            Shape::sphere,
-            Matrix::identity(),
-            a_material
-        );
+        let a = Shape::with(Shape::sphere, Matrix::identity(), a_material);
 
         w.objects[0] = a;
         w.objects[1] = Shape::glass_sphere();
 
         let r = Ray {
             origin: Point {
-                x:0.0,y:0.0,z:0.1
+                x: 0.0,
+                y: 0.0,
+                z: 0.1,
             },
             direction: Vector {
-                x: 0.0,y:1.0,z:0.0
-            }
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
         };
-        let xs = Intersections::new(vec![Intersection::new(-0.9899, 0), Intersection::new(-0.4899, 1), Intersection::new(0.4800,1), Intersection::new(0.9899,0)]);
+        let xs = Intersections::new(vec![
+            Intersection::new(-0.9899, 0),
+            Intersection::new(-0.4899, 1),
+            Intersection::new(0.4800, 1),
+            Intersection::new(0.9899, 0),
+        ]);
         let comps = xs[2].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 5);
-        assert_eq!(c, Color {r:0.0, g:0.99888, b:0.04725});
+        assert_eq!(
+            c,
+            Color {
+                r: 0.0,
+                g: 0.99888,
+                b: 0.04725
+            }
+        );
     }
     #[test]
     fn shade_hit_with_a_transparent_material() {
@@ -773,10 +873,12 @@ mod tests {
         glass.set_transparency(0.5);
         glass.set_refractive_index(1.5);
 
-        let floor = Shape::with(Shape::plane, translation(0.0,-1.0,0.0), glass);
+        let floor = Shape::with(Shape::plane, translation(0.0, -1.0, 0.0), glass);
         let mut ball_material = Material::default();
         ball_material.set_color(Color {
-            r:1.0,g:0.0,b:0.0
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
         });
         ball_material.set_ambient(0.5);
         let ball = Shape::with(Shape::sphere, translation(0.0, -3.5, -0.5), ball_material);
@@ -785,24 +887,27 @@ mod tests {
             origin: Point {
                 x: 0.0,
                 y: 0.0,
-                z: -3.0
+                z: -3.0,
             },
             direction: Vector {
-                x:0.0,
-                y:-sqrt(2.0)/2.0,
-                z:sqrt(2.0)/2.0,
-            }
+                x: 0.0,
+                y: -sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0,
+            },
         };
-        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0),2)]);
+        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0), 2)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let color = w.shade_hit(comps, 5);
-        assert_eq!(color, Color {
-            r: 0.93642,
-            g: 0.68642,
-            b: 0.68642
-        })
+        assert_eq!(
+            color,
+            Color {
+                r: 0.93642,
+                g: 0.68642,
+                b: 0.68642
+            }
+        )
     }
-  #[test]
+    #[test]
     fn shade_hit_with_a_reflective_transparent_material() {
         let mut w = World::default();
         let mut glass = Material::default();
@@ -810,10 +915,12 @@ mod tests {
         glass.set_reflective(0.5);
         glass.set_refractive_index(1.5);
 
-        let floor = Shape::with(Shape::plane, translation(0.0,-1.0,0.0), glass);
+        let floor = Shape::with(Shape::plane, translation(0.0, -1.0, 0.0), glass);
         let mut ball_material = Material::default();
         ball_material.set_color(Color {
-            r:1.0,g:0.0,b:0.0
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
         });
         ball_material.set_ambient(0.5);
         let ball = Shape::with(Shape::sphere, translation(0.0, -3.5, -0.5), ball_material);
@@ -822,23 +929,24 @@ mod tests {
             origin: Point {
                 x: 0.0,
                 y: 0.0,
-                z: -3.0
+                z: -3.0,
             },
             direction: Vector {
-                x:0.0,
-                y:-sqrt(2.0)/2.0,
-                z:sqrt(2.0)/2.0,
-            }
+                x: 0.0,
+                y: -sqrt(2.0) / 2.0,
+                z: sqrt(2.0) / 2.0,
+            },
         };
-        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0),2)]);
+        let xs = Intersections::new(vec![Intersection::new(sqrt(2.0), 2)]);
         let comps = xs[0].prepare_computations(&r, &w, &xs);
         let color = w.shade_hit(comps, 5);
-        assert_eq!(color, Color {
-            r: 0.93391,
-            g: 0.69643,
-            b: 0.69243
-        })
+        assert_eq!(
+            color,
+            Color {
+                r: 0.93391,
+                g: 0.69643,
+                b: 0.69243
+            }
+        )
     }
-
-
 }
