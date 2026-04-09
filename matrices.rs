@@ -156,10 +156,11 @@ where
     }
 
     let mut m2: Matrix<N, N> = Matrix::init(0.0);
+    let det = determinant(m);
     for row in 0..N {
         for col in 0..N {
             let c = cofactor(m, row, col);
-            m2.set(col, row, c / determinant(m));
+            m2.set(col, row, c / det);
         }
     }
     Some(m2)
@@ -224,8 +225,8 @@ where
                 let a = self.data[row][col];
                 let b = other.get(col);
                 cel += a * b;
-                result.set(row, cel);
             }
+            result.set(row, cel);
         }
         result
     }
@@ -477,7 +478,7 @@ fn calculating_the_inverse_of_a_matrix() {
         Matrix::new([
             [0.21805, 0.45113, 0.24060, -0.04511],
             [-0.80827, -1.45677, -0.44361, 0.52068],
-            [-0.07895, -0.22368, -0.05253, 0.19737],
+            [-0.07895, -0.22368, -0.05263, 0.19737],
             [-0.52256, -0.81391, -0.30075, 0.30639]
         ])
     )

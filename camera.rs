@@ -64,8 +64,8 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         self.transform = transform;
         self.inverse_transform = inverse(&transform);
     }
-    pub fn render(&self, world: World) -> Canvas<HSIZE, VSIZE> {
-        let mut image: Canvas<HSIZE, VSIZE> = Canvas::new(255);
+    pub fn render(&self, world: World) -> Canvas<VSIZE, HSIZE> {
+        let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
         for y in 0..VSIZE {
             for x in 0..HSIZE {
                 let ray = self.ray_for_pixel(x, y);
@@ -75,8 +75,8 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         }
         image
     }
-    pub fn render_par(&self, world: World) -> Canvas<HSIZE, VSIZE> {
-        let mut image: Canvas<HSIZE, VSIZE> = Canvas::new(255);
+    pub fn render_par(&self, world: World) -> Canvas<VSIZE, HSIZE> {
+        let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
         const MAX_REFLECTION_DEPTH: usize = 5;
         image
             .pixels
@@ -86,11 +86,9 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
                 for x in 0..HSIZE {
                     let ray = self.ray_for_pixel(x, y);
                     let color = world.color_at(&ray, MAX_REFLECTION_DEPTH);
-
                     row[x] = Pixel::clamp(0, 255, color);
                 }
             });
-
         image
     }
 }
