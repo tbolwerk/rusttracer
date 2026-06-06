@@ -6,6 +6,8 @@ use std::str::Matches;
 
 use canvas::*;
 
+mod cubes;
+use cubes::*;
 mod patterns;
 use patterns::*;
 mod planes;

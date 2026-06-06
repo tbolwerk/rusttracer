@@ -1,4 +1,5 @@
 use crate::{
+    cubes::Cube,
     intersections::*,
     materials::Material,
     matrices::*,
@@ -9,6 +10,17 @@ use crate::{
     tuples::*,
 };
 use std::sync::{Arc, Mutex};
+
+macro_rules! shape_match {
+    ($self:expr, $binding:ident => $body:expr) => {
+        match $self {
+            Shape::Test($binding) => $body,
+            Shape::Sphere($binding) => $body,
+            Shape::Plane($binding) => $body,
+            Shape::Cube($binding) => $body,
+        }
+    };
+}
 #[derive(Debug, Clone)]
 struct TestShape {
     transform: TransformData,
@@ -45,6 +57,7 @@ pub enum Shape {
     Test(TestShape),
     Sphere(Sphere),
     Plane(Plane),
+    Cube(Cube),
 }
 
 impl Shape {
@@ -76,11 +89,7 @@ impl Shape {
             None => ray,
             Some(inverse_transform) => &ray.transform(inverse_transform),
         };
-        match self {
-            Shape::Test(test_shape) => test_shape.local_intersect(&local_ray, object_id),
-            Shape::Sphere(sphere) => sphere.local_intersect(&local_ray, object_id),
-            Shape::Plane(plane) => plane.local_intersect(&local_ray, object_id),
-        }
+        shape_match!(self, s => s.local_intersect(&local_ray, object_id))
     }
     pub fn normal_at(&self, point: &Point) -> Vector {
         let inverse_transform = match self.get_inverse_transform() {
@@ -88,12 +97,8 @@ impl Shape {
             Some(inverse_transform) => inverse_transform,
         };
         let local_point = inverse_transform * point.clone();
-        let local_normal = match self {
-            Shape::Test(test_shape) => test_shape.local_normal_at(&local_point),
-            Shape::Sphere(sphere) => sphere.local_normal_at(&local_point),
-            Shape::Plane(plane) => plane.local_normal_at(&local_point),
-        };
-        let world_normal: Vector = transpose(&inverse_transform) * local_normal;
+        let local_normal = shape_match!(self, s => s.local_normal_at(&local_point));
+        let world_normal = transpose(&inverse_transform) * local_normal;
         world_normal.normalize()
     }
 }
@@ -141,12 +146,21 @@ impl HasTransform for TransformData {
     }
 }
 
+impl HasMaterial for Material {
+    fn set_material(&mut self, material: Material) -> () {
+        *self = material;
+    }
+    fn get_material(&self) -> Material {
+        self.clone()
+    }
+}
+
 pub trait HasMaterial {
     fn set_material(&mut self, material: Material) -> ();
     fn get_material(&self) -> Material;
 }
 
-pub trait Intersects: HasMaterial {
+pub trait Intersects {
     fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections;
     fn local_normal_at(&self, point: &Point) -> Vector {
         Vector {
@@ -156,28 +170,16 @@ pub trait Intersects: HasMaterial {
         }
     }
 }
-
 impl HasTransform for Shape {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
-        match self {
-            Shape::Test(test_shape) => test_shape.transform.set_transform(transform),
-            Shape::Sphere(sphere) => sphere.transform.set_transform(transform),
-            Shape::Plane(plane) => plane.transform.set_transform(transform),
-        }
+        shape_match!(self, s => s.transform.set_transform(transform))
     }
+
     fn get_transform(&self) -> Matrix<4, 4> {
-        match self {
-            Shape::Test(test_shape) => test_shape.transform.get_transform(),
-            Shape::Sphere(sphere) => sphere.transform.get_transform(),
-            Shape::Plane(plane) => plane.transform.get_transform(),
-        }
+        shape_match!(self, s => s.transform.get_transform())
     }
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        match self {
-            Shape::Test(test_shape) => test_shape.transform.get_inverse_transform(),
-            Shape::Sphere(sphere) => sphere.transform.get_inverse_transform(),
-            Shape::Plane(plane) => plane.transform.get_inverse_transform(),
-        }
+        shape_match!(self, s => s.transform.get_inverse_transform())
     }
 }
 impl HasMaterial for TestShape {
@@ -190,18 +192,10 @@ impl HasMaterial for TestShape {
 }
 impl HasMaterial for Shape {
     fn set_material(&mut self, material: Material) -> () {
-        match self {
-            Shape::Test(test_shape) => test_shape.set_material(material),
-            Shape::Sphere(sphere) => sphere.set_material(material),
-            Shape::Plane(plane) => plane.set_material(material),
-        }
+      shape_match!(self, s => s.set_material(material))
     }
     fn get_material(&self) -> Material {
-        match self {
-            Shape::Test(test_shape) => test_shape.get_material(),
-            Shape::Sphere(sphere) => sphere.material.clone(),
-            Shape::Plane(plane) => plane.get_material(),
-        }
+        shape_match!(self, s => s.get_material())
     }
 }
 impl Intersects for TestShape {
