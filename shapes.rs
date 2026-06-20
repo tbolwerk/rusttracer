@@ -67,6 +67,9 @@ impl Shape {
     pub const fn sphere() -> Shape {
         Shape::Sphere(Sphere::unit())
     }
+    pub fn cube() -> Shape {
+        Shape::Cube(Cube::default())
+    }
     pub fn glass_sphere() -> Shape {
         let mut sphere = Shape::Sphere(Sphere::unit());
         let mut glass = Material::default();
@@ -174,7 +177,6 @@ impl HasTransform for Shape {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
         shape_match!(self, s => s.transform.set_transform(transform))
     }
-
     fn get_transform(&self) -> Matrix<4, 4> {
         shape_match!(self, s => s.transform.get_transform())
     }
@@ -182,17 +184,9 @@ impl HasTransform for Shape {
         shape_match!(self, s => s.transform.get_inverse_transform())
     }
 }
-impl HasMaterial for TestShape {
-    fn set_material(&mut self, material: Material) -> () {
-        self.material = material;
-    }
-    fn get_material(&self) -> Material {
-        self.material.clone()
-    }
-}
 impl HasMaterial for Shape {
     fn set_material(&mut self, material: Material) -> () {
-      shape_match!(self, s => s.set_material(material))
+        shape_match!(self, s => s.set_material(material))
     }
     fn get_material(&self) -> Material {
         shape_match!(self, s => s.get_material())
@@ -205,6 +199,15 @@ impl Intersects for TestShape {
         Intersections::new(vec![])
     }
 }
+impl HasMaterial for TestShape {
+    fn set_material(&mut self, material: Material) -> () {
+        self.material = material;
+    }
+    fn get_material(&self) -> Material {
+        self.material.clone()
+    }
+}
+
 mod tests {
     use super::*;
     #[test]

@@ -46,8 +46,105 @@ fn main() -> Result<(), ()> {
     let _ = chapter9();
     let _ = chapter10();
     let _ = chapter11();
+    let _ = chapter12();
     Ok(())
 }
+
+fn chapter12() {
+    let mut world = World::new();
+    world.light = Some(Light::Point(PointLight::new(
+        Point {
+            x: -10.0,
+            y: 10.0,
+            z: -10.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    )));
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    let pattern = Pattern::ring_pattern(
+        Color {
+            r: 0.9,
+            g: 0.3,
+            b: 0.1,
+        },
+        Color {
+            r: 0.1,
+            g: 0.7,
+            b: 0.9,
+        },
+    );
+    floor_material.set_pattern(pattern.clone());
+    floor_material.set_color(Color {
+        r: 1.0,
+        g: 0.9,
+        b: 0.9,
+    });
+    floor_material.set_specular(0.0);
+    floor.set_material(floor_material);
+    let mut wall = Shape::plane();
+    wall.set_transform(
+        Matrix::identity()
+            .then(rotation_x(PI / 2.0))
+            .then(rotation_y(-PI / 6.0))
+            .then(translation(0.0, 0.0, 5.0)),
+    );
+    let mut wall_material = Material::default();
+    wall_material.set_pattern(Pattern::stripe_pattern(
+        Color {
+            r: 0.5,
+            g: 0.0,
+            b: 0.0,
+        },
+        Color {
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+        },
+    ));
+    wall.set_material(wall_material);
+    // Cube
+    let mut cube = Shape::cube();
+    let mut cube_material = Material::default();
+    cube_material.set_color(Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+    });
+    cube.set_material(cube_material);
+    cube.set_transform(translation(0.0, 1.0, 0.0) * rotation_y(15.0));
+    world.objects = vec![floor, wall, cube];
+    let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 1.5,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    let canvas = camera.render_par(world);
+    let filename = "chapter12.ppm";
+    let result = canvas.write_ppm(filename, PpmFormat::P6);
+    match result {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
+
 fn chapter11() {
     let mut world = World::new();
 
@@ -101,9 +198,9 @@ fn chapter11() {
     let mut left_material = Material::glass();
     /*
     left_material.set_color(Color {
-        r: 1.0,
-        g: 0.8,
-        b: 0.1,
+    r: 1.0,
+    g: 0.8,
+    b: 0.1,
     });
     left_material.set_diffuse(0.7);
     left_material.set_specular(0.3);
