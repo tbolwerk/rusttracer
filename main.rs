@@ -110,7 +110,6 @@ fn chapter15() {
         "chapter15: speedup {:.1}x",
         naive.as_secs_f64() / bvh.as_secs_f64()
     );
-
     let filename = "chapter15.ppm";
     match canvas.write_ppm(filename, PpmFormat::P6) {
         Err(_) => println!("Something went wrong!"),

@@ -2,9 +2,9 @@ use crate::canvas::Canvas;
 use crate::colors::Pixel;
 use crate::matrices::*;
 use crate::rays::*;
-use crate::tuples::*;
 #[cfg(test)]
 use crate::transformations::{rotation_y, translation, PI};
+use crate::tuples::*;
 use crate::worlds::*;
 use rayon::prelude::*;
 use std::ops::Div;
@@ -16,6 +16,7 @@ pub struct Camera<const HSIZE: usize, const VSIZE: usize> {
     half_width: Number,
     half_height: Number,
 }
+const MAX_REFLECTION_DEPTH: usize = 5;
 impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
     pub fn new(field_of_view: Number) -> Self {
         let half_view = field_of_view.div(2.0).tan();
@@ -68,7 +69,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         for y in 0..VSIZE {
             for x in 0..HSIZE {
                 let ray = self.ray_for_pixel(x, y);
-                let color = world.color_at(&ray, 0);
+                let color = world.color_at(&ray, MAX_REFLECTION_DEPTH);
                 image.write_pixel(color, y, x);
             }
         }
@@ -76,7 +77,6 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
     }
     pub fn render_par(&self, world: World) -> Canvas<VSIZE, HSIZE> {
         let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
-        const MAX_REFLECTION_DEPTH: usize = 5;
         image
             .pixels
             .par_rows_mut()
