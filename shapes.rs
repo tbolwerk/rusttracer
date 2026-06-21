@@ -1,14 +1,6 @@
 use crate::{
-    cones::Cone,
-    cubes::Cube,
-    cylinders::Cylinder,
-    intersections::*,
-    materials::Material,
-    matrices::*,
-    planes::Plane,
-    rays::*,
-    spheres::Sphere,
-    tuples::*,
+    cones::Cone, cubes::Cube, cylinders::Cylinder, groups::*, intersections::*,
+    materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere, tuples::*,
 };
 use std::sync::{Arc, Mutex};
 
@@ -21,6 +13,7 @@ macro_rules! shape_match {
             Shape::Cube($binding) => $body,
             Shape::Cylinder($binding) => $body,
             Shape::Cone($binding) => $body,
+            Shape::Group($binding) => $body,
         }
     };
 }
@@ -48,6 +41,7 @@ impl Default for TestShape {
             transform: TransformData {
                 transform: Matrix::identity(),
                 inverse_transform: None,
+                parent: None,
             },
             material: Material::default(),
             saved_ray: Arc::new(Mutex::new(None)),
@@ -63,8 +57,8 @@ pub enum Shape {
     Cube(Cube),
     Cylinder(Cylinder),
     Cone(Cone),
+    Group(Group),
 }
-
 impl Shape {
     fn test_shape() -> Shape {
         Shape::Test(TestShape::default())
@@ -91,6 +85,22 @@ impl Shape {
     }
     pub fn plane() -> Shape {
         Shape::Plane(Plane::default())
+    }
+    pub fn group() -> Shape {
+        Shape::Group(Group::new())
+    }
+    // The group this shape belongs to (an index into `World::objects`), or
+    // `None` if it is a root. Mirrors the book's `parent` attribute.
+    pub fn parent(&self) -> Option<usize> {
+        shape_match!(self, s => s.transform.get_parent())
+    }
+    pub fn set_parent(&mut self, parent: Option<usize>) {
+        shape_match!(self, s => s.transform.set_parent(parent))
+    }
+    // The shape's normal in its own object space. Lifting it into world space
+    // (accounting for any enclosing groups) is done by `World::normal_at`.
+    pub fn local_normal_at(&self, point: &Point) -> Vector {
+        shape_match!(self, s => s.local_normal_at(point))
     }
     pub fn with(shape: fn() -> Shape, transform: Matrix<4, 4>, material: Material) -> Shape {
         let mut s = shape();
@@ -127,6 +137,10 @@ pub trait HasTransform {
 pub struct TransformData {
     transform: Matrix<4, 4>,
     inverse_transform: Option<Matrix<4, 4>>,
+    // Index into `World::objects` of the group this shape belongs to, if any.
+    // `None` means this is a top-level (root) shape. This replaces the book's
+    // upward parent pointer with an arena index.
+    parent: Option<usize>,
 }
 
 impl TransformData {
@@ -134,7 +148,14 @@ impl TransformData {
         Self {
             transform,
             inverse_transform,
+            parent: None,
         }
+    }
+    pub fn get_parent(&self) -> Option<usize> {
+        self.parent
+    }
+    pub fn set_parent(&mut self, parent: Option<usize>) {
+        self.parent = parent;
     }
 }
 
@@ -143,6 +164,7 @@ impl Default for TransformData {
         Self {
             transform: Matrix::identity(),
             inverse_transform: None,
+            parent: None,
         }
     }
 }

@@ -5,7 +5,10 @@ mod canvas;
 
 use canvas::*;
 
+mod groups;
+use groups::*;
 mod cones;
+use cones::*;
 mod cylinders;
 use cylinders::*;
 mod cubes;
@@ -25,8 +28,8 @@ use materials::*;
 mod lights;
 use lights::*;
 mod intersections;
-mod spheres;
 mod rays;
+mod spheres;
 use rays::*;
 mod transformations;
 use transformations::*;
@@ -46,7 +49,113 @@ fn main() -> Result<(), ()> {
     let _ = chapter11();
     let _ = chapter12();
     let _ = chapter13();
+    let _ = chapter14();
     Ok(())
+}
+// A hexagon assembled from groups, following the book's chapter 14 example.
+// Each of the six sides is its own group holding a spherical corner and a
+// cylindrical edge; all six sides are children of one parent group, which is
+// tilted and lifted so the whole ring faces the camera.
+fn chapter14() {
+    let mut world = World::new();
+    world.lights = vec![Light::Point(PointLight::new(
+        Point {
+            x: -10.0,
+            y: 10.0,
+            z: -10.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    ))];
+
+    // A reflective floor so the hexagon casts and catches a little light.
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    floor_material.set_color(Color {
+        r: 0.9,
+        g: 0.9,
+        b: 0.9,
+    });
+    floor_material.set_specular(0.0);
+    floor_material.set_reflective(0.1);
+    floor.set_material(floor_material);
+    world.add_object(floor);
+
+    // Shared material for every corner and edge of the hexagon.
+    let mut material = Material::default();
+    material.set_color(Color {
+        r: 0.9,
+        g: 0.2,
+        b: 0.3,
+    });
+    material.set_diffuse(0.7);
+    material.set_specular(0.3);
+    material.set_shininess(150.0);
+    material.set_reflective(0.1);
+
+    // A corner is a small sphere; an edge is a unit-tall cylinder rotated into
+    // place. Both are built in the side group's local space. Transform order
+    // reads as "apply self first, then each .then(...)".
+    let corner = || {
+        let mut c = Shape::sphere();
+        c.set_transform(scaling(0.25, 0.25, 0.25).then(translation(0.0, 0.0, -1.0)));
+        c.set_material(material.clone());
+        c
+    };
+    let edge = || {
+        let mut e = Shape::Cylinder(Cylinder::new(0.0, 1.0, false));
+        e.set_transform(
+            scaling(0.25, 1.0, 0.25)
+                .then(rotation_z(-PI / 2.0))
+                .then(rotation_y(-PI / 6.0))
+                .then(translation(0.0, 0.0, -1.0)),
+        );
+        e.set_material(material.clone());
+        e
+    };
+
+    // The parent group: tilt the ring forward and lift it above the floor.
+    let mut hex = Shape::group();
+    hex.set_transform(rotation_x(-PI / 6.0).then(translation(0.0, 1.0, 0.0)));
+    let hex = world.add_object(hex);
+
+    // Six sides, each a group rotated a sixth of a turn around y.
+    for n in 0..6 {
+        let mut side = Shape::group();
+        side.set_transform(rotation_y(n as Number * PI / 3.0));
+        let side = world.add_child(hex, side);
+        world.add_child(side, corner());
+        world.add_child(side, edge());
+    }
+
+    let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 2.5,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    let canvas = camera.render_par(world);
+    let filename = "chapter14.ppm";
+    let result = canvas.write_ppm(filename, PpmFormat::P6);
+    match result {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
 }
 // A model of the US Capitol building, assembled entirely from the ray
 // tracer's primitives: planes, cubes, cylinders, a sphere (the dome) and a
@@ -193,7 +302,7 @@ fn chapter13() {
 
     // The Statue of Freedom: a bronze cone tapering to a point. Polished
     // metal: dark diffuse, strong specular highlight and real reflectivity.
-    let mut statue = Shape::Cone(cones::Cone::new(-1.0, 0.0, true));
+    let mut statue = Shape::Cone(Cone::new(-1.0, 0.0, true));
     let mut statue_material = Material::default();
     statue_material.set_color(Color {
         r: 0.55,

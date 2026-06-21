@@ -17,8 +17,14 @@ pub const fn almost_eq(a: Number, b: Number) -> bool {
 
 macro_rules! assert_almost_eq {
     ($a: expr, $b: expr) => {
+        assert_almost_eq!($a, $b, $crate::tuples::EPSILON);
+    };
+    // Some reference values from "The Ray Tracer Challenge" are published
+    // rounded to 5 decimals, so their rounding error can exceed EPSILON (1e-5).
+    // Pass an explicit tolerance for those instead of loosening EPSILON globally.
+    ($a: expr, $b: expr, $eps: expr) => {
         assert!(
-            ($a - $b).abs() <= $crate::tuples::EPSILON,
+            ($a - $b).abs() <= $eps,
             "assert_almost_eq failed: {:?} != {:?}",
             $a,
             $b

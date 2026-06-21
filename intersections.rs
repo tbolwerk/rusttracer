@@ -79,8 +79,9 @@ impl Intersection {
             }
         }
         let point = ray.position(self.t);
-        let object = &world.objects[self.object_id];
-        let mut normalv = object.normal_at(&point);
+        // Resolve the normal through the world so any enclosing group
+        // transforms are applied (world_to_object / normal_to_world).
+        let mut normalv = world.normal_at(self.object_id, point);
         let eyev = -ray.direction;
         let inside = normalv.dot(eyev) < 0.0;
         if inside {

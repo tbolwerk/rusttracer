@@ -1,10 +1,11 @@
 use crate::intersections::Computations;
-use crate::intersections::Intersections;
 #[cfg(test)]
 use crate::intersections::Intersection;
+use crate::intersections::Intersections;
 use crate::lights::*;
 use crate::materials::lightning;
 use crate::materials::Material;
+use crate::matrices::transpose;
 use crate::matrices::Matrix;
 #[cfg(test)]
 use crate::patterns::*;
@@ -29,11 +30,85 @@ impl World {
         let mut intersections = Intersections {
             intersections: vec![],
         };
-        for (index, object) in self.objects.iter().enumerate() {
-            let xs = object.intersect(&ray, index);
-            intersections.extend(xs);
+        // Only roots are traversed here; children are reached recursively by
+        // intersect_object, so a child must not be intersected a second time.
+        for (id, object) in self.objects.iter().enumerate() {
+            if object.parent().is_none() {
+                intersections.extend(self.intersect_object(id, ray));
+            }
         }
         intersections
+    }
+    // Dispatch a ray to the arena object `id`. For a group, move the ray into
+    // the group's space and recurse into its children. For a leaf, hand off to
+    // the primitive's own `Shape::intersect`, which applies the leaf's
+    // transform. Transforms therefore compose down the hierarchy exactly as in
+    // the book's Group::intersect.
+    pub fn intersect_object(&self, id: usize, ray: &Ray) -> Intersections {
+        match &self.objects[id] {
+            Shape::Group(group) => {
+                let local_ray = match self.objects[id].get_inverse_transform() {
+                    None => ray.clone(),
+                    Some(inverse) => ray.transform(inverse),
+                };
+                let mut xs = Intersections::new(vec![]);
+                for &child in &group.children {
+                    xs.extend(self.intersect_object(child, &local_ray));
+                }
+                xs
+            }
+            leaf => leaf.intersect(ray, id),
+        }
+    }
+    // Book's world_to_object: walk up the parent chain applying each ancestor's
+    // inverse transform, then this object's own, converting a world-space point
+    // into the object's local space.
+    pub fn world_to_object(&self, id: usize, point: Point) -> Point {
+        let point = match self.objects[id].parent() {
+            Some(parent) => self.world_to_object(parent, point),
+            None => point,
+        };
+        let inverse = self.objects[id]
+            .get_inverse_transform()
+            .unwrap_or(Matrix::identity());
+        inverse * point
+    }
+    // Book's normal_to_world: lift a normal out through this object's transform,
+    // then each ancestor's, normalizing at every step.
+    fn normal_to_world(&self, id: usize, normal: Vector) -> Vector {
+        let inverse = self.objects[id]
+            .get_inverse_transform()
+            .unwrap_or(Matrix::identity());
+        let normal = (transpose(&inverse) * normal).normalize();
+        match self.objects[id].parent() {
+            Some(parent) => self.normal_to_world(parent, normal),
+            None => normal,
+        }
+    }
+    // Book's normal_at: the world-space normal of the leaf `id` at `world_point`,
+    // accounting for every enclosing group's transform.
+    pub fn normal_at(&self, id: usize, world_point: Point) -> Vector {
+        let local_point = self.world_to_object(id, world_point);
+        let local_normal = self.objects[id].local_normal_at(&local_point);
+        self.normal_to_world(id, local_normal)
+    }
+    // Append a top-level object and return its arena id.
+    pub fn add_object(&mut self, object: Shape) -> usize {
+        let id = self.objects.len();
+        self.objects.push(object);
+        id
+    }
+    // Append `child` and attach it to the group at `group_id`: set the child's
+    // parent and record its id in the group's children. Mirrors the book's
+    // Group::add_child.
+    pub fn add_child(&mut self, group_id: usize, mut child: Shape) -> usize {
+        child.set_parent(Some(group_id));
+        let id = self.objects.len();
+        self.objects.push(child);
+        if let Shape::Group(group) = &mut self.objects[group_id] {
+            group.children.push(id);
+        }
+        id
     }
     pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
         let object = &self.objects[comps.object_id];
@@ -178,7 +253,6 @@ impl Default for World {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,14 +719,10 @@ mod tests {
         let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.reflected_color(&comps, 1);
-        assert_eq!(
-            color,
-            Color {
-                r: 0.19032,
-                g: 0.2379,
-                b: 0.14274
-            }
-        );
+        // Book value, published to 5 decimals; compare within that precision.
+        assert_almost_eq!(color.r, 0.19032, 1e-4);
+        assert_almost_eq!(color.g, 0.2379, 1e-4);
+        assert_almost_eq!(color.b, 0.14274, 1e-4);
     }
     #[test]
     fn shade_hit_with_a_reflective_material() {
@@ -678,14 +748,10 @@ mod tests {
         let i = Intersection::new(sqrt(2.0), 2);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         let color = w.shade_hit(comps, 1);
-        assert_eq!(
-            color,
-            Color {
-                r: 0.87677,
-                g: 0.92436,
-                b: 0.82918
-            }
-        )
+        // Book value, published to 5 decimals; compare within that precision.
+        assert_almost_eq!(color.r, 0.87677, 1e-4);
+        assert_almost_eq!(color.g, 0.92436, 1e-4);
+        assert_almost_eq!(color.b, 0.82918, 1e-4);
     }
     #[test]
     fn color_at_with_mutally_reflective_surfaces() {
@@ -858,14 +924,10 @@ mod tests {
         ]);
         let comps = xs[2].prepare_computations(&r, &w, &xs);
         let c = w.refracted_color(&comps, 5);
-        assert_eq!(
-            c,
-            Color {
-                r: 0.0,
-                g: 0.99888,
-                b: 0.04725
-            }
-        );
+        // Book value, published to 5 decimals; compare within that precision.
+        assert_almost_eq!(c.r, 0.0, 1e-4);
+        assert_almost_eq!(c.g, 0.99888, 1e-4);
+        assert_almost_eq!(c.b, 0.04725, 1e-4);
     }
     #[test]
     fn shade_hit_with_a_transparent_material() {
