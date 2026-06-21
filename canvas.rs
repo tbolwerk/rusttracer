@@ -99,17 +99,32 @@ impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
     }
     pub fn write_ppm(&self, filename: &str, format: PpmFormat) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
+        self.write_ppm_to(&mut file, format)
+    }
+    // Pack the canvas into a 0x00RRGGBB buffer, row-major from the top-left,
+    // for a framebuffer window (minifb's `update_with_buffer`).
+    pub fn to_argb(&self) -> Vec<u32> {
+        let mut buffer = Vec::with_capacity(ROWS * COLS);
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                let p = self.pixels.get(row, col);
+                buffer.push((p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32);
+            }
+        }
+        buffer
+    }
+    // Serialize a PPM to any writer. `write_ppm` uses it for files; the live
+    // flythrough uses it to stream P6 frames to stdout for a piped player.
+    pub fn write_ppm_to<W: Write>(
+        &self,
+        out: &mut W,
+        format: PpmFormat,
+    ) -> Result<(), std::io::Error> {
         let header = format!("{}\n{} {}\n{}", format.pp(), COLS, ROWS, self.max_color);
-        let _ = writeln!(file, "{}", header,);
+        writeln!(out, "{}", header)?;
         match format {
-            PpmFormat::P3 => {
-                writeln!(file, "{}", self.pixels.pp())
-            }
-
-            PpmFormat::P6 => {
-                file.write_all(&self.to_bytes())?;
-                Ok(())
-            }
+            PpmFormat::P3 => writeln!(out, "{}", self.pixels.pp()),
+            PpmFormat::P6 => out.write_all(&self.to_bytes()),
         }
     }
 }

@@ -42,6 +42,12 @@ use tuples::*;
 use std::time::Instant;
 
 fn main() -> Result<(), ()> {
+    // `cargo run --release -- fly` opens an interactive window you can fly
+    // through, instead of rendering the chapters to files.
+    if std::env::args().any(|a| a == "fly") {
+        flythrough();
+        return Ok(());
+    }
     let _ = chapter1();
     let _ = chapter4();
     let _ = chapter5();
@@ -114,6 +120,174 @@ fn chapter15() {
     match canvas.write_ppm(filename, PpmFormat::P6) {
         Err(_) => println!("Something went wrong!"),
         Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
+
+// Internal render resolution + recursion depth for the interactive viewer. Kept
+// small so it stays real-time; the window scales it up. Tune to taste.
+const LIVE_W: usize = 320;
+const LIVE_H: usize = 180;
+const LIVE_DEPTH: usize = 3;
+
+// A selectable scene: a name, a builder, and a camera pose to start from.
+struct Scene {
+    name: &'static str,
+    build: fn() -> World,
+    pos: Point,
+    yaw: Number,
+    pitch: Number,
+}
+
+// An interactive fly-through in a single window: render a frame, blit it, read
+// the keyboard, repeat. One process, one window for both display and input (via
+// minifb), so there is no pipe, player, or terminal to coordinate. Number keys
+// 1-4 switch scenes; closing the window or pressing Esc exits.
+fn flythrough() {
+    use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+
+    const MOVE: Number = 0.35; // world units per frame while a move key is held
+    const LOOK: Number = 0.04; // radians per frame while a look key is held
+
+    // Each scene starts from a pose that frames it; fly freely from there.
+    let scenes = [
+        Scene {
+            name: "marbles",
+            build: build_marbles_world,
+            pos: Point { x: 0.0, y: 4.0, z: -11.0 },
+            yaw: 0.0,
+            pitch: -0.25,
+        },
+        Scene {
+            name: "capitol",
+            build: build_capitol_world,
+            pos: Point { x: 0.0, y: 5.0, z: -18.0 },
+            yaw: 0.0,
+            pitch: -0.08,
+        },
+        Scene {
+            name: "hexagon",
+            build: build_hexagon_world,
+            pos: Point { x: 0.0, y: 2.5, z: -5.0 },
+            yaw: 0.0,
+            pitch: -0.25,
+        },
+        Scene {
+            name: "glass",
+            build: build_glass_world,
+            pos: Point { x: 0.0, y: 1.5, z: -5.5 },
+            yaw: 0.0,
+            pitch: -0.08,
+        },
+    ];
+
+    let mut camera: Camera<LIVE_W, LIVE_H> = Camera::new(PI / 3.0);
+    let title = |name: &str| {
+        format!("rusttracer [{name}] - 1-4 scene, N next, WASD/RF move, arrows look, Esc quit")
+    };
+    let mut window = Window::new(
+        &title(scenes[0].name),
+        LIVE_W,
+        LIVE_H,
+        WindowOptions {
+            scale: Scale::X4, // 320x180 render shown in a 1280x720 window
+            ..WindowOptions::default()
+        },
+    )
+    .expect("failed to open window");
+
+    let mut current = 0usize;
+    let mut world = (scenes[current].build)();
+    let mut pos = scenes[current].pos;
+    let mut yaw = scenes[current].yaw;
+    let mut pitch = scenes[current].pitch;
+
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        // Scene switching: digits 1-4 pick a scene, N cycles to the next. Each
+        // switch rebuilds the world and resets the camera to that scene's pose.
+        let digit_keys = [Key::Key1, Key::Key2, Key::Key3, Key::Key4];
+        let mut next = None;
+        for (i, key) in digit_keys.iter().enumerate() {
+            if i < scenes.len() && window.is_key_pressed(*key, KeyRepeat::No) {
+                next = Some(i);
+            }
+        }
+        if window.is_key_pressed(Key::N, KeyRepeat::No) {
+            next = Some((current + 1) % scenes.len());
+        }
+        if let Some(i) = next {
+            current = i;
+            world = (scenes[current].build)();
+            pos = scenes[current].pos;
+            yaw = scenes[current].yaw;
+            pitch = scenes[current].pitch;
+            window.set_title(&title(scenes[current].name));
+        }
+
+        let fwd = forward(yaw, pitch);
+        let right = Vector {
+            x: yaw.cos(),
+            y: 0.0,
+            z: -yaw.sin(),
+        };
+        if window.is_key_down(Key::W) {
+            pos = pos + fwd * MOVE;
+        }
+        if window.is_key_down(Key::S) {
+            pos = pos + fwd * -MOVE;
+        }
+        if window.is_key_down(Key::A) {
+            pos = pos + right * -MOVE;
+        }
+        if window.is_key_down(Key::D) {
+            pos = pos + right * MOVE;
+        }
+        if window.is_key_down(Key::R) {
+            pos.y += MOVE;
+        }
+        if window.is_key_down(Key::F) {
+            pos.y -= MOVE;
+        }
+        if window.is_key_down(Key::Left) {
+            yaw -= LOOK;
+        }
+        if window.is_key_down(Key::Right) {
+            yaw += LOOK;
+        }
+        if window.is_key_down(Key::Up) {
+            pitch += LOOK;
+        }
+        if window.is_key_down(Key::Down) {
+            pitch -= LOOK;
+        }
+        pitch = pitch.clamp(-1.5, 1.5);
+
+        let fwd = forward(yaw, pitch);
+        camera.set_transform(view_transform(
+            pos,
+            pos + fwd,
+            Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        ));
+        let canvas = camera.render_live(&world, LIVE_DEPTH);
+        if window
+            .update_with_buffer(&canvas.to_argb(), LIVE_W, LIVE_H)
+            .is_err()
+        {
+            break; // window closed
+        }
+    }
+}
+
+// Forward (look) direction from yaw (around +y) and pitch. yaw = pitch = 0 looks
+// toward +z, which is where the field sits from the default start position.
+fn forward(yaw: Number, pitch: Number) -> Vector {
+    Vector {
+        x: pitch.cos() * yaw.sin(),
+        y: pitch.sin(),
+        z: pitch.cos() * yaw.cos(),
     }
 }
 
@@ -245,7 +419,7 @@ fn build_marbles_world() -> World {
 // Each of the six sides is its own group holding a spherical corner and a
 // cylindrical edge; all six sides are children of one parent group, which is
 // tilted and lifted so the whole ring faces the camera.
-fn chapter14() {
+fn build_hexagon_world() -> World {
     let mut world = World::new();
     world.lights = vec![Light::Point(PointLight::new(
         Point {
@@ -320,6 +494,12 @@ fn chapter14() {
         world.add_child(side, edge());
     }
 
+    world.compute_bounds();
+    world
+}
+fn chapter14() {
+    let world = build_hexagon_world();
+
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
         Point {
@@ -350,7 +530,7 @@ fn chapter14() {
 // tracer's primitives: planes, cubes, cylinders, a sphere (the dome) and a
 // cone (the spire under the Statue of Freedom). The building faces -z, toward
 // the camera.
-fn chapter13() {
+fn build_capitol_world() -> World {
     let mut world = World::new();
     // Two lights now that the world supports a Vec<Light>: a bright warm "sun"
     // from the front-left, and a dim cool "sky" fill from the right that lifts
@@ -523,6 +703,10 @@ fn chapter13() {
     objects.push(pediment);
 
     world.objects = objects;
+    world
+}
+fn chapter13() {
+    let world = build_capitol_world();
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
@@ -645,7 +829,7 @@ fn chapter12() {
     }
 }
 
-fn chapter11() {
+fn build_glass_world() -> World {
     let mut world = World::new();
 
     // Floor - glass material
@@ -720,6 +904,10 @@ fn chapter11() {
             b: 1.0,
         },
     ))];
+    world
+}
+fn chapter11() {
+    let world = build_glass_world();
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
