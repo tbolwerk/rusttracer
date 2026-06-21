@@ -48,86 +48,194 @@ fn main() -> Result<(), ()> {
     let _ = chapter13();
     Ok(())
 }
+// A model of the US Capitol building, assembled entirely from the ray
+// tracer's primitives: planes, cubes, cylinders, a sphere (the dome) and a
+// cone (the spire under the Statue of Freedom). The building faces -z, toward
+// the camera.
 fn chapter13() {
     let mut world = World::new();
-    world.light = Some(Light::Point(PointLight::new(
-        Point {
-            x: -10.0,
-            y: 10.0,
-            z: -10.0,
+    // Two lights now that the world supports a Vec<Light>: a bright warm "sun"
+    // from the front-left, and a dim cool "sky" fill from the right that lifts
+    // the shadowed faces without erasing the shadows.
+    world.lights = vec![
+        Light::Point(PointLight::new(
+            Point {
+                x: -7.0,
+                y: 14.0,
+                z: -14.0,
+            },
+            Color {
+                r: 1.0,
+                g: 0.98,
+                b: 0.92,
+            },
+        )),
+        Light::Point(PointLight::new(
+            Point {
+                x: 14.0,
+                y: 7.0,
+                z: -10.0,
+            },
+            Color {
+                r: 0.3,
+                g: 0.36,
+                b: 0.45,
+            },
+        )),
+    ];
+
+    // Marble: the warm white stone used for most of the building. Soft sheen
+    // and a faint reflectivity give it a polished-stone feel without turning
+    // it into a mirror.
+    let mut marble = Material::default();
+    marble.set_color(Color {
+        r: 0.93,
+        g: 0.92,
+        b: 0.87,
+    });
+    marble.set_ambient(0.12);
+    marble.set_diffuse(0.8);
+    marble.set_specular(0.25);
+    marble.set_shininess(120.0);
+    marble.set_reflective(0.04);
+
+    // Painted cast iron of the dome: a touch more polished than the stone.
+    let mut dome_iron = marble.clone();
+    dome_iron.set_color(Color {
+        r: 0.95,
+        g: 0.95,
+        b: 0.93,
+    });
+    dome_iron.set_specular(0.45);
+    dome_iron.set_shininess(200.0);
+    dome_iron.set_reflective(0.08);
+
+    // Ground: a polished checkered stone plaza that faintly reflects the
+    // building.
+    let mut ground = Shape::plane();
+    let mut ground_material = Material::default();
+    let mut plaza = Pattern::checker_pattern(
+        Color {
+            r: 0.82,
+            g: 0.82,
+            b: 0.80,
         },
         Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
-    )));
-    let mut floor = Shape::plane();
-    let mut floor_material = Material::default();
-    let pattern = Pattern::ring_pattern(
-        Color {
-            r: 0.9,
-            g: 0.3,
-            b: 0.1,
-        },
-        Color {
-            r: 0.1,
-            g: 0.7,
-            b: 0.9,
+            r: 0.52,
+            g: 0.52,
+            b: 0.52,
         },
     );
-    floor_material.set_pattern(pattern.clone());
-    floor_material.set_color(Color {
-        r: 1.0,
-        g: 0.9,
-        b: 0.9,
-    });
-    floor_material.set_specular(0.0);
-    floor.set_material(floor_material);
-    let mut wall = Shape::plane();
-    wall.set_transform(
-        Matrix::identity()
-            .then(rotation_x(PI / 2.0))
-            .then(rotation_y(-PI / 6.0))
-            .then(translation(0.0, 0.0, 5.0)),
-    );
-    let mut wall_material = Material::default();
-    wall_material.set_pattern(Pattern::stripe_pattern(
-        Color {
-            r: 0.5,
-            g: 0.0,
-            b: 0.0,
-        },
-        Color {
-            r: 0.0,
-            g: 1.0,
-            b: 0.0,
-        },
-    ));
-    wall.set_material(wall_material);
+    plaza.set_transform(scaling(1.5, 1.5, 1.5));
+    ground_material.set_pattern(plaza);
+    ground_material.set_ambient(0.12);
+    ground_material.set_diffuse(0.8);
+    ground_material.set_specular(0.2);
+    ground_material.set_shininess(120.0);
+    ground_material.set_reflective(0.2);
+    ground.set_material(ground_material);
 
-    // Cylinder
-    let mut cylinder = Shape::Cylinder(Cylinder::new(-1.0, 0.0, true));
-    let mut cylinder_material = Material::default();
-    cylinder_material.set_color(Color {
-        r: 1.0,
-        g: 0.0,
-        b: 0.0,
+    // A large enclosing sphere acts as a daytime sky. It is lit purely by its
+    // high ambient term, so it glows an even blue regardless of the light, and
+    // the reflective plaza and dome pick up its color.
+    let mut sky = Shape::sphere();
+    let mut sky_material = Material::default();
+    sky_material.set_color(Color {
+        r: 0.55,
+        g: 0.75,
+        b: 1.0,
     });
-    cylinder.set_material(cylinder_material);
-    cylinder.set_transform(translation(0.0, 1.0, 0.0) * rotation_y(15.0));
+    sky_material.set_ambient(0.6);
+    sky_material.set_diffuse(0.0);
+    sky_material.set_specular(0.0);
+    sky.set_material(sky_material);
+    sky.set_transform(scaling(1000.0, 1000.0, 1000.0));
 
-    world.objects = vec![floor, wall, cylinder];
+    let mut objects: Vec<Shape> = vec![sky, ground];
+
+    // Main facade: a long, low block spanning the full width.
+    let mut base = Shape::cube();
+    base.set_material(marble.clone());
+    base.set_transform(scaling(6.0, 1.2, 2.0).then(translation(0.0, 1.2, 0.0)));
+    objects.push(base);
+
+    // The two end wings (House and Senate), raised slightly above the facade.
+    for sign in [-1.0, 1.0] {
+        let mut wing = Shape::cube();
+        wing.set_material(marble.clone());
+        wing.set_transform(scaling(1.3, 1.4, 2.0).then(translation(sign * 4.5, 1.4, 0.0)));
+        objects.push(wing);
+    }
+
+    // Central block that lifts the rotunda above the facade.
+    let mut center = Shape::cube();
+    center.set_material(marble.clone());
+    center.set_transform(scaling(2.0, 1.0, 2.0).then(translation(0.0, 3.4, 0.0)));
+    objects.push(center);
+
+    // The rotunda drum: a closed cylinder carrying the dome.
+    let mut drum = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+    drum.set_material(marble.clone());
+    drum.set_transform(scaling(1.5, 1.3, 1.5).then(translation(0.0, 4.4, 0.0)));
+    objects.push(drum);
+
+    // The dome: a sphere scaled tall, sitting on the drum.
+    let mut dome = Shape::sphere();
+    dome.set_material(dome_iron);
+    dome.set_transform(scaling(1.5, 1.8, 1.5).then(translation(0.0, 5.7, 0.0)));
+    objects.push(dome);
+
+    // The lantern/cupola: a small closed cylinder atop the dome.
+    let mut lantern = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+    lantern.set_material(marble.clone());
+    lantern.set_transform(scaling(0.35, 0.6, 0.35).then(translation(0.0, 7.3, 0.0)));
+    objects.push(lantern);
+
+    // The Statue of Freedom: a bronze cone tapering to a point. Polished
+    // metal: dark diffuse, strong specular highlight and real reflectivity.
+    let mut statue = Shape::Cone(cones::Cone::new(-1.0, 0.0, true));
+    let mut statue_material = Material::default();
+    statue_material.set_color(Color {
+        r: 0.55,
+        g: 0.41,
+        b: 0.16,
+    });
+    statue_material.set_ambient(0.2);
+    statue_material.set_diffuse(0.6);
+    statue_material.set_specular(0.9);
+    statue_material.set_shininess(250.0);
+    statue_material.set_reflective(0.35);
+    statue.set_material(statue_material);
+    statue.set_transform(scaling(0.22, 0.7, 0.22).then(translation(0.0, 8.6, 0.0)));
+    objects.push(statue);
+
+    // The east front colonnade: a row of columns under a pediment.
+    let column_xs = [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4];
+    for x in column_xs {
+        let mut column = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+        column.set_material(marble.clone());
+        column.set_transform(scaling(0.18, 2.4, 0.18).then(translation(x, 0.0, -2.1)));
+        objects.push(column);
+    }
+
+    // The pediment resting on the columns.
+    let mut pediment = Shape::cube();
+    pediment.set_material(marble.clone());
+    pediment.set_transform(scaling(2.8, 0.18, 0.35).then(translation(0.0, 2.6, -2.1)));
+    objects.push(pediment);
+
+    world.objects = objects;
+
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
         Point {
             x: 0.0,
-            y: 1.5,
-            z: -5.0,
+            y: 5.0,
+            z: -17.0,
         },
         Point {
             x: 0.0,
-            y: 1.0,
+            y: 3.5,
             z: 0.0,
         },
         Vector {
@@ -146,7 +254,7 @@ fn chapter13() {
 }
 fn chapter12() {
     let mut world = World::new();
-    world.light = Some(Light::Point(PointLight::new(
+    world.lights = vec![Light::Point(PointLight::new(
         Point {
             x: -10.0,
             y: 10.0,
@@ -157,7 +265,7 @@ fn chapter12() {
             g: 1.0,
             b: 1.0,
         },
-    )));
+    ))];
     let mut floor = Shape::plane();
     let mut floor_material = Material::default();
     let pattern = Pattern::ring_pattern(
@@ -302,7 +410,7 @@ fn chapter11() {
     left.set_material(left_material);
     world.objects = vec![floor, middle, right, left];
 
-    world.light = Some(Light::Point(PointLight::new(
+    world.lights = vec![Light::Point(PointLight::new(
         Point {
             x: -10.0,
             y: 10.0,
@@ -313,7 +421,7 @@ fn chapter11() {
             g: 1.0,
             b: 1.0,
         },
-    )));
+    ))];
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
@@ -465,7 +573,7 @@ fn chapter10() {
         b: 1.0,
     };
     let light = Light::Point(PointLight::new(light_position, light_color));
-    world.light = Some(light);
+    world.lights = vec![light];
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
@@ -557,7 +665,7 @@ fn chapter9() {
         b: 1.0,
     };
     let light = Light::Point(PointLight::new(light_position, light_color));
-    world.light = Some(light);
+    world.lights = vec![light];
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(

@@ -3,9 +3,9 @@ use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
-pub type Number = f32;
+pub type Number = f64;
 
-pub const EPSILON: Number = 1e-4;
+pub const EPSILON: Number = 1e-5;
 
 pub fn sqrt(x: Number) -> Number {
     x.sqrt()
@@ -15,7 +15,6 @@ pub const fn almost_eq(a: Number, b: Number) -> bool {
     (a - b).abs() <= EPSILON
 }
 
-#[cfg(test)]
 macro_rules! assert_almost_eq {
     ($a: expr, $b: expr) => {
         assert!(
@@ -28,7 +27,6 @@ macro_rules! assert_almost_eq {
 }
 #[cfg(test)]
 pub(crate) use assert_almost_eq;
-
 
 pub trait Tuple {
     fn x(&self) -> Number;

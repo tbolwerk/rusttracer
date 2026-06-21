@@ -28,17 +28,17 @@ impl Cone {
             return;
         }
 
-        fn check_caps(ray: &Ray, t: Number) -> bool {
+        fn check_caps(ray: &Ray, t: Number, radius: Number) -> bool {
             let x = ray.origin.x() + t * ray.direction.x();
             let z = ray.origin.z() + t * ray.direction.z();
 
-            (x.powf(2.0) + z.powf(2.0)) <= 1.0 + EPSILON
+            (x.powf(2.0) + z.powf(2.0)) <= radius.powf(2.0) + EPSILON
         }
 
         let bounds = [self.minimum, self.maximum];
         for bound in bounds {
             let t = (bound - ray.origin.y()) / ray.direction.y();
-            if check_caps(ray, t) {
+            if check_caps(ray, t, bound.abs()) {
                 xs.push(Intersection::new(t, object_id));
             }
         }
@@ -77,33 +77,36 @@ impl Intersects for Cone {
 
         let c = ray.origin.x().powi(2) - ray.origin.y().powi(2) + ray.origin.z().powi(2);
 
-        if almost_eq(a, 0.0) && !almost_eq(b, 0.0) {
-            let t = -c / (2.0 * b);
-            xs.push(Intersection::new(t, object_id));
-            return Intersections::new(xs);
-        }
-
-        let disc = b.powi(2) - 4.0 * a * c;
-
-        // A truly missing ray has a clearly negative discriminant. A tangent ray
-        // gives disc == 0 in exact math, but f32 rounding can push it slightly
-        // negative, so tolerate that and clamp before taking the square root.
-        if disc < -EPSILON {
-            return Intersections::new(xs);
-        }
-        let disc = disc.max(0.0);
-
-        let mut t0 = (-b - sqrt(disc)) / (2.0 * a);
-        let mut t1 = (-b + sqrt(disc)) / (2.0 * a);
-
-        if t0 > t1 {
-            (t0, t1) = (t1, t0);
-        }
-
-        for t in [t0, t1] {
-            let y = ray.origin.y() + t * ray.direction.y();
-            if self.minimum < y && y < self.maximum {
+        if almost_eq(a, 0.0) {
+            // Ray is parallel to one of the cone's halves. With a == 0 there is a
+            // single wall intersection (when b != 0); we still need to test the
+            // caps afterwards, so don't return early here.
+            if !almost_eq(b, 0.0) {
+                let t = -c / (2.0 * b);
                 xs.push(Intersection::new(t, object_id));
+            }
+        } else {
+            let disc = b.powi(2) - 4.0 * a * c;
+
+            // A truly missing ray has a clearly negative discriminant. A tangent
+            // ray gives disc == 0 in exact math, but f32 rounding can push it
+            // slightly negative, so tolerate that and clamp before the sqrt.
+            if disc >= -EPSILON {
+                let disc = disc.max(0.0);
+
+                let mut t0 = (-b - sqrt(disc)) / (2.0 * a);
+                let mut t1 = (-b + sqrt(disc)) / (2.0 * a);
+
+                if t0 > t1 {
+                    (t0, t1) = (t1, t0);
+                }
+
+                for t in [t0, t1] {
+                    let y = ray.origin.y() + t * ray.direction.y();
+                    if self.minimum < y && y < self.maximum {
+                        xs.push(Intersection::new(t, object_id));
+                    }
+                }
             }
         }
 
@@ -282,5 +285,70 @@ fn computing_the_normal_vector_on_a_cone() {
         assert_almost_eq!(n.x, normal.x);
         assert_almost_eq!(n.y, normal.y);
         assert_almost_eq!(n.z, normal.z);
+    }
+}
+
+#[test]
+fn intersecting_a_cones_end_caps() {
+    let shape = Cone::new(-0.5, 0.5, true);
+    struct Example {
+        origin: Point,
+        direction: Vector,
+        count: usize,
+    }
+    let examples = [
+        Example {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            count: 0,
+        },
+        Example {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -0.25,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 1.0,
+            },
+            count: 2,
+        },
+        Example {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -0.25,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            count: 4,
+        },
+    ];
+    for Example {
+        origin,
+        direction,
+        count,
+    } in examples
+    {
+        let dir = direction.normalize();
+        let r = Ray {
+            origin,
+            direction: dir,
+        };
+        let xs = shape.local_intersect(&r, 0);
+        assert_eq!(xs.count(), count);
     }
 }

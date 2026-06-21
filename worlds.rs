@@ -16,13 +16,13 @@ use crate::tuples::*;
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     pub objects: Vec<Shape>,
-    pub light: Option<Light>,
+    pub lights: Vec<Light>,
 }
 impl World {
     pub fn new() -> Self {
         Self {
             objects: vec![],
-            light: None,
+            lights: vec![],
         }
     }
     pub fn intersect_world(&self, ray: &Ray) -> Intersections {
@@ -37,22 +37,27 @@ impl World {
     }
     pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
         let object = &self.objects[comps.object_id];
-        let shadowed = self.is_shadowed(comps.over_point);
-        let surface = match self.light.clone() {
-            None => Color {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
-            },
-            Some(light) => lightning(
-                &object,
-                light,
-                comps.point,
-                comps.eyev,
-                comps.normalv,
-                shadowed,
-            ),
+        // Sum the contribution of every light. Each light is shadow-tested
+        // independently, so a point can be lit by one light while shadowed
+        // from another. Note the material's ambient term is included once per
+        // light, so multiple lights brighten ambient additively.
+        let mut surface = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
         };
+        for light in &self.lights {
+            let shadowed = self.is_shadowed(comps.over_point, light);
+            surface = surface
+                + lightning(
+                    &object,
+                    light.clone(),
+                    comps.point,
+                    comps.eyev,
+                    comps.normalv,
+                    shadowed,
+                );
+        }
         let reflected = self.reflected_color(&comps, remaining);
         let refracted = self.refracted_color(&comps, remaining);
 
@@ -77,26 +82,21 @@ impl World {
             ),
         }
     }
-    pub fn is_shadowed(&self, point: Point) -> bool {
-        match self.light.clone() {
-            None => true,
-            Some(light) => {
-                let v = light.position() - point;
-                let distance = v.magnitude();
-                let direction = v.normalize();
+    pub fn is_shadowed(&self, point: Point, light: &Light) -> bool {
+        let v = light.position() - point;
+        let distance = v.magnitude();
+        let direction = v.normalize();
 
-                let r = Ray {
-                    origin: point,
-                    direction,
-                };
+        let r = Ray {
+            origin: point,
+            direction,
+        };
 
-                let intersections = self.intersect_world(&r);
+        let intersections = self.intersect_world(&r);
 
-                match intersections.hit() {
-                    None => false,
-                    Some(intersection) => intersection.t > EPSILON && intersection.t < distance,
-                }
-            }
+        match intersections.hit() {
+            None => false,
+            Some(intersection) => intersection.t > EPSILON && intersection.t < distance,
         }
     }
     pub fn reflected_color(&self, comps: &Computations, remaining: usize) -> Color {
@@ -174,7 +174,7 @@ impl Default for World {
 
         World {
             objects: vec![s1, s2],
-            light: Some(light),
+            lights: vec![light],
         }
     }
 }
@@ -187,7 +187,7 @@ mod tests {
     fn creating_a_world() {
         let w = World::new();
         assert_eq!(w.objects, vec![]);
-        assert_eq!(w.light, None);
+        assert_eq!(w.lights, vec![]);
     }
     #[test]
     fn the_default_world() {
@@ -219,7 +219,7 @@ mod tests {
         s2.set_transform(TRANSFORM);
 
         let w = World::default();
-        assert_eq!(w.light, Some(light));
+        assert_eq!(w.lights, vec![light]);
         assert_eq!(w.objects[0], s1);
         assert_eq!(w.objects[1], s2);
     }
@@ -274,7 +274,7 @@ mod tests {
     #[test]
     fn shading_an_intersection_from_the_inside() {
         let mut w = World::default();
-        w.light = Some(Light::Point(PointLight {
+        w.lights = vec![Light::Point(PointLight {
             position: Point {
                 x: 0.0,
                 y: 0.25,
@@ -285,7 +285,7 @@ mod tests {
                 g: 1.0,
                 b: 1.0,
             },
-        }));
+        })];
 
         let r = Ray {
             origin: Point {
@@ -481,7 +481,7 @@ mod tests {
             y: 10.0,
             z: 0.0,
         };
-        assert_eq!(w.is_shadowed(p), false);
+        assert_eq!(w.is_shadowed(p, &w.lights[0]), false);
     }
     #[test]
     fn the_shadow_when_an_object_is_between_the_point_and_the_light() {
@@ -491,7 +491,7 @@ mod tests {
             y: -10.0,
             z: 10.0,
         };
-        assert_eq!(w.is_shadowed(p), true);
+        assert_eq!(w.is_shadowed(p, &w.lights[0]), true);
     }
     #[test]
     fn there_is_no_shadow_when_an_object_is_behind_the_light() {
@@ -501,7 +501,7 @@ mod tests {
             y: 20.0,
             z: -20.0,
         };
-        assert_eq!(w.is_shadowed(p), false);
+        assert_eq!(w.is_shadowed(p, &w.lights[0]), false);
     }
     #[test]
     fn there_is_no_shadow_when_an_object_is_behind_the_point() {
@@ -511,7 +511,7 @@ mod tests {
             y: 2.0,
             z: -2.0,
         };
-        assert_eq!(w.is_shadowed(p), false);
+        assert_eq!(w.is_shadowed(p, &w.lights[0]), false);
     }
     #[test]
     fn shade_hit_is_given_an_intersection_in_shadow() {
@@ -528,7 +528,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        w.light = Some(light);
+        w.lights = vec![light];
         let s1 = Shape::sphere();
         const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 10.0);
         let mut s2 = Shape::sphere();
@@ -690,7 +690,7 @@ mod tests {
     #[test]
     fn color_at_with_mutally_reflective_surfaces() {
         let mut w = World::default();
-        w.light = Some(Light::point_light(
+        w.lights = vec![Light::point_light(
             Point {
                 x: 0.0,
                 y: 0.0,
@@ -701,7 +701,7 @@ mod tests {
                 g: 1.0,
                 b: 1.0,
             },
-        ));
+        )];
 
         let mut lower = Shape::plane();
         let mut lower_material = lower.get_material().clone();
