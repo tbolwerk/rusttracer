@@ -1,39 +1,39 @@
 use crate::{
-    matrices::{inverse, Matrix},
+    matrices::Matrix,
     shapes::{HasTransform, Shape, TransformData},
     tuples::*,
 };
 
 #[derive(PartialEq, Debug, Clone)]
-struct CheckerPattern {
+pub(crate) struct CheckerPattern {
     a: Color,
     b: Color,
     transform: TransformData,
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct RingPattern {
+pub(crate) struct RingPattern {
     a: Color,
     b: Color,
     transform: TransformData,
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct GradientPattern {
+pub(crate) struct GradientPattern {
     a: Color,
     b: Color,
     transform: TransformData,
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct StripePattern {
+pub(crate) struct StripePattern {
     a: Color,
     b: Color,
     transform: TransformData,
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct TestPattern {
+pub(crate) struct TestPattern {
     transform: TransformData,
 }
 
@@ -211,6 +211,7 @@ impl Pattern {
         }
     }
 }
+#[cfg(test)]
 mod tests {
     use crate::transformations::{scaling, translation};
 

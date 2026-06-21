@@ -1,12 +1,13 @@
 use crate::{
+    cones::Cone,
     cubes::Cube,
+    cylinders::Cylinder,
     intersections::*,
     materials::Material,
     matrices::*,
     planes::Plane,
     rays::*,
     spheres::Sphere,
-    transformations::{rotation_z, scaling, translation, PI},
     tuples::*,
 };
 use std::sync::{Arc, Mutex};
@@ -18,11 +19,13 @@ macro_rules! shape_match {
             Shape::Sphere($binding) => $body,
             Shape::Plane($binding) => $body,
             Shape::Cube($binding) => $body,
+            Shape::Cylinder($binding) => $body,
+            Shape::Cone($binding) => $body,
         }
     };
 }
 #[derive(Debug, Clone)]
-struct TestShape {
+pub(crate) struct TestShape {
     transform: TransformData,
     material: Material,
     saved_ray: Arc<Mutex<Option<Ray>>>,
@@ -58,6 +61,8 @@ pub enum Shape {
     Sphere(Sphere),
     Plane(Plane),
     Cube(Cube),
+    Cylinder(Cylinder),
+    Cone(Cone),
 }
 
 impl Shape {
@@ -69,6 +74,12 @@ impl Shape {
     }
     pub fn cube() -> Shape {
         Shape::Cube(Cube::default())
+    }
+    pub fn cylinder() -> Shape {
+        Shape::Cylinder(Cylinder::default())
+    }
+    pub fn cone() -> Shape {
+        Shape::Cone(Cone::default())
     }
     pub fn glass_sphere() -> Shape {
         let mut sphere = Shape::Sphere(Sphere::unit());
@@ -208,8 +219,11 @@ impl HasMaterial for TestShape {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transformations::{rotation_z, scaling, translation, PI};
+
     #[test]
     fn the_default_transformation() {
         let s = Shape::test_shape();

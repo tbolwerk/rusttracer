@@ -1,4 +1,6 @@
-use crate::{matrices::Matrix, transformations::*, tuples::*};
+use crate::{matrices::Matrix, tuples::*};
+#[cfg(test)]
+use crate::transformations::*;
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ray {
     pub origin: Point,
@@ -16,6 +18,7 @@ impl Ray {
         }
     }
 }
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

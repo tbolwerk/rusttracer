@@ -2,16 +2,16 @@
 #![feature(f128)]
 #![allow(incomplete_features)]
 mod canvas;
-use std::str::Matches;
 
 use canvas::*;
 
+mod cones;
+mod cylinders;
+use cylinders::*;
 mod cubes;
-use cubes::*;
 mod patterns;
 use patterns::*;
 mod planes;
-use planes::*;
 mod shapes;
 use shapes::*;
 mod camera;
@@ -25,9 +25,7 @@ use materials::*;
 mod lights;
 use lights::*;
 mod intersections;
-use intersections::*;
 mod spheres;
-use spheres::*;
 mod rays;
 use rays::*;
 mod transformations;
@@ -47,9 +45,105 @@ fn main() -> Result<(), ()> {
     let _ = chapter10();
     let _ = chapter11();
     let _ = chapter12();
+    let _ = chapter13();
     Ok(())
 }
+fn chapter13() {
+    let mut world = World::new();
+    world.light = Some(Light::Point(PointLight::new(
+        Point {
+            x: -10.0,
+            y: 10.0,
+            z: -10.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    )));
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    let pattern = Pattern::ring_pattern(
+        Color {
+            r: 0.9,
+            g: 0.3,
+            b: 0.1,
+        },
+        Color {
+            r: 0.1,
+            g: 0.7,
+            b: 0.9,
+        },
+    );
+    floor_material.set_pattern(pattern.clone());
+    floor_material.set_color(Color {
+        r: 1.0,
+        g: 0.9,
+        b: 0.9,
+    });
+    floor_material.set_specular(0.0);
+    floor.set_material(floor_material);
+    let mut wall = Shape::plane();
+    wall.set_transform(
+        Matrix::identity()
+            .then(rotation_x(PI / 2.0))
+            .then(rotation_y(-PI / 6.0))
+            .then(translation(0.0, 0.0, 5.0)),
+    );
+    let mut wall_material = Material::default();
+    wall_material.set_pattern(Pattern::stripe_pattern(
+        Color {
+            r: 0.5,
+            g: 0.0,
+            b: 0.0,
+        },
+        Color {
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+        },
+    ));
+    wall.set_material(wall_material);
 
+    // Cylinder
+    let mut cylinder = Shape::Cylinder(Cylinder::new(-1.0, 0.0, true));
+    let mut cylinder_material = Material::default();
+    cylinder_material.set_color(Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+    });
+    cylinder.set_material(cylinder_material);
+    cylinder.set_transform(translation(0.0, 1.0, 0.0) * rotation_y(15.0));
+
+    world.objects = vec![floor, wall, cylinder];
+    let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 1.5,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    let canvas = camera.render_par(world);
+    let filename = "chapter13.ppm";
+    let result = canvas.write_ppm(filename, PpmFormat::P6);
+    match result {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
 fn chapter12() {
     let mut world = World::new();
     world.light = Some(Light::Point(PointLight::new(
@@ -195,7 +289,7 @@ fn chapter11() {
     // Left sphere
     let mut left = Shape::sphere();
     left.set_transform(scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75)));
-    let mut left_material = Material::glass();
+    let left_material = Material::glass();
     /*
     left_material.set_color(Color {
     r: 1.0,

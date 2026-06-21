@@ -1,6 +1,5 @@
 use crate::intersections::*;
 use crate::materials::*;
-use crate::matrices::*;
 use crate::rays::*;
 use crate::shapes::*;
 use crate::tuples::*;
@@ -44,6 +43,7 @@ impl Intersects for Plane {
         }
     }
 }
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

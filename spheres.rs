@@ -1,11 +1,11 @@
-use crate::intersections;
 use crate::intersections::*;
 use crate::materials::*;
 use crate::matrices::*;
 use crate::rays::*;
 use crate::shapes::*;
-use crate::transformations::*;
 use crate::tuples::*;
+#[cfg(test)]
+use crate::transformations::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Sphere {
@@ -62,6 +62,7 @@ impl Intersects for Sphere {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

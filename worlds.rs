@@ -1,12 +1,12 @@
-use crate::intersections;
 use crate::intersections::Computations;
-use crate::intersections::Intersection;
 use crate::intersections::Intersections;
-use crate::lights;
+#[cfg(test)]
+use crate::intersections::Intersection;
 use crate::lights::*;
 use crate::materials::lightning;
 use crate::materials::Material;
 use crate::matrices::Matrix;
+#[cfg(test)]
 use crate::patterns::*;
 use crate::rays::Ray;
 use crate::shapes::*;
@@ -179,6 +179,7 @@ impl Default for World {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -738,7 +739,7 @@ mod tests {
     #[test]
     fn the_refracted_color_with_an_opaque_surface() {
         let w = World::default();
-        let shape = w.objects[0].clone();
+        let _shape = w.objects[0].clone();
         let r = Ray {
             origin: Point {
                 x: 0.0,

@@ -1,6 +1,5 @@
 use std::ops::Index;
 
-use crate::intersections;
 use crate::rays::*;
 use crate::shapes::*;
 use crate::tuples::*;
@@ -180,6 +179,7 @@ impl Intersection {
         Self { t, object_id }
     }
 }
+#[cfg(test)]
 mod tests {
     use crate::{
         materials::Material,

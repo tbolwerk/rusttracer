@@ -54,6 +54,7 @@ impl LightProperties for Light {
         }
     }
 }
+#[cfg(test)]
 mod tests {
     use super::*;
 

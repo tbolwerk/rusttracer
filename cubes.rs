@@ -1,10 +1,7 @@
-use crate::intersections;
 use crate::intersections::*;
 use crate::materials::*;
-use crate::matrices::*;
 use crate::rays::*;
 use crate::shapes::*;
-use crate::transformations::*;
 use crate::tuples::*;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -104,8 +101,8 @@ fn a_ray_intersects_a_cube() {
         name: &'static str,
         origin: Point,
         direction: Vector,
-        t1: f32,
-        t2: f32,
+        t1: Number,
+        t2: Number,
     }
     let examples = [
         Example {

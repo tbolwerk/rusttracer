@@ -1,5 +1,7 @@
-use crate::matrices::{inverse, Matrix};
+use crate::matrices::Matrix;
 use crate::tuples::*;
+#[cfg(test)]
+use crate::matrices::inverse;
 
 pub const PI: Number = 3.1415926535897932384626433832795028841971693993751058;
 const TWO_PI: Number = PI * 2.0;
@@ -131,6 +133,7 @@ pub fn view_transform(from: Point, to: Point, up: Vector) -> Matrix<4, 4> {
     orientation * translation(-from.x(), -from.y(), -from.z())
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

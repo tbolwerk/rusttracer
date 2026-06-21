@@ -2,10 +2,9 @@ use crate::canvas::Canvas;
 use crate::colors::Pixel;
 use crate::matrices::*;
 use crate::rays::*;
-use crate::transformations::rotation_y;
-use crate::transformations::translation;
-use crate::transformations::PI;
 use crate::tuples::*;
+#[cfg(test)]
+use crate::transformations::{rotation_y, translation, PI};
 use crate::worlds::*;
 use rayon::prelude::*;
 use std::ops::Div;
@@ -93,6 +92,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

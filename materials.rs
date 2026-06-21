@@ -173,6 +173,7 @@ fn background() -> (Material, Point) {
     (m, position)
 }
 
+#[cfg(test)]
 mod tests {
     use crate::{
         intersections::{Intersection, Intersections},
