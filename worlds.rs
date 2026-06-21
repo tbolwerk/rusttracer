@@ -1,3 +1,4 @@
+use crate::bounds::BoundingBox;
 use crate::intersections::Computations;
 #[cfg(test)]
 use crate::intersections::Intersection;
@@ -18,12 +19,17 @@ use crate::tuples::*;
 pub struct World {
     pub objects: Vec<Shape>,
     pub lights: Vec<Light>,
+    // When true, a group culls its children against its bounding box before
+    // recursing. Always correct to leave on; exposed only so a scene can render
+    // the same world with it off to measure the speedup.
+    pub use_bounds: bool,
 }
 impl World {
     pub fn new() -> Self {
         Self {
             objects: vec![],
             lights: vec![],
+            use_bounds: true,
         }
     }
     pub fn intersect_world(&self, ray: &Ray) -> Intersections {
@@ -51,6 +57,17 @@ impl World {
                     None => ray.clone(),
                     Some(inverse) => ray.transform(inverse),
                 };
+                // Bounding-box cull: if the ray (in group space) misses the
+                // group's box, none of its children can be hit, so skip them
+                // all. `bounds` is None until `compute_bounds` runs, in which
+                // case we fall through and test every child as before.
+                if self.use_bounds {
+                    if let Some(bounds) = &group.bounds {
+                        if !bounds.intersects(&local_ray) {
+                            return Intersections::new(vec![]);
+                        }
+                    }
+                }
                 let mut xs = Intersections::new(vec![]);
                 for &child in &group.children {
                     xs.extend(self.intersect_object(child, &local_ray));
@@ -58,6 +75,35 @@ impl World {
                 xs
             }
             leaf => leaf.intersect(ray, id),
+        }
+    }
+    // The bounding box of object `id` in its own object space: a group's cached
+    // box, or a primitive's `local_bounds`.
+    fn bounds_of(&self, id: usize) -> BoundingBox {
+        match &self.objects[id] {
+            Shape::Group(group) => group.bounds.unwrap_or(BoundingBox::empty()),
+            other => other.local_bounds(),
+        }
+    }
+    // Compute and cache every group's bounding box. Call once after a scene is
+    // fully assembled and before rendering. Children always receive a higher
+    // arena id than their parent (see `add_child`), so iterating ids in reverse
+    // guarantees a child's box is finalized before its parent reads it.
+    pub fn compute_bounds(&mut self) {
+        for id in (0..self.objects.len()).rev() {
+            let children = match &self.objects[id] {
+                Shape::Group(group) => group.children.clone(),
+                _ => continue,
+            };
+            let mut bb = BoundingBox::empty();
+            for child in children {
+                let child_bounds = self.bounds_of(child);
+                let child_transform = self.objects[child].get_transform();
+                bb.add_box(&child_bounds.transform(child_transform));
+            }
+            if let Shape::Group(group) = &mut self.objects[id] {
+                group.bounds = Some(bb);
+            }
         }
     }
     // Book's world_to_object: walk up the parent chain applying each ancestor's
@@ -250,6 +296,7 @@ impl Default for World {
         World {
             objects: vec![s1, s2],
             lights: vec![light],
+            use_bounds: true,
         }
     }
 }

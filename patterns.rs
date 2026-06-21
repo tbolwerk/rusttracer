@@ -99,10 +99,14 @@ impl CheckerPattern {
         }
     }
     fn color(&self, point: Point) -> Color {
-        if (point.x().floor() + point.y().floor() + point.z().floor()) % 2.0 == 0.0 {
-            return self.a;
+        // `stable_floor` absorbs the ~1e-15 error a plane's hit point carries
+        // (see StableFloor); `rem_euclid` keeps the parity non-negative.
+        let parity = point.x().stable_floor() + point.y().stable_floor() + point.z().stable_floor();
+        if parity.rem_euclid(2.0) == 0.0 {
+            self.a
+        } else {
+            self.b
         }
-        self.b
     }
 }
 

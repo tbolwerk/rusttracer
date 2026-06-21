@@ -5,6 +5,7 @@ mod canvas;
 
 use canvas::*;
 
+mod bounds;
 mod groups;
 use groups::*;
 mod cones;
@@ -38,6 +39,8 @@ use matrices::*;
 mod tuples;
 use tuples::*;
 
+use std::time::Instant;
+
 fn main() -> Result<(), ()> {
     let _ = chapter1();
     let _ = chapter4();
@@ -50,7 +53,194 @@ fn main() -> Result<(), ()> {
     let _ = chapter12();
     let _ = chapter13();
     let _ = chapter14();
+    let _ = chapter15();
     Ok(())
+}
+// A field of 280 glass and metal marbles on a reflective floor. The marbles are
+// organized into a two-level group hierarchy (one group per row, all rows under
+// one parent) so that bounding-box culling has structure to exploit: a ray that
+// misses a row's box skips its 20 marbles at once, and a background ray that
+// misses the whole field skips all 280. The scene is rendered twice, with
+// culling off and on, to show the speedup the bounding boxes buy.
+fn chapter15() {
+    // Output resolution for the marble demo. The benchmark and the saved image use
+    // the same camera, so the printed timings describe exactly the image written.
+    const MARBLES_HSIZE: usize = 1200;
+    const MARBLES_VSIZE: usize = 900;
+
+    println!("chapter15: building a field of 280 marbles...");
+    let world = build_marbles_world();
+
+    let mut camera: Camera<MARBLES_HSIZE, MARBLES_VSIZE> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 0.0,
+            y: 4.2,
+            z: -10.5,
+        },
+        Point {
+            x: 0.0,
+            y: 0.3,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+
+    // Same world, same camera, bounding-box culling disabled: every ray (and
+    // every reflection, refraction and shadow ray) tests all 280 marbles.
+    let mut naive_world = world.clone();
+    naive_world.use_bounds = false;
+    println!("chapter15: rendering {MARBLES_HSIZE}x{MARBLES_VSIZE} without bounding boxes...");
+    let start = Instant::now();
+    let _ = camera.render_par(naive_world);
+    let naive = start.elapsed();
+    println!("chapter15:   without bounding boxes: {naive:.2?}");
+
+    // Same scene with culling on. This is the image we keep.
+    println!("chapter15: rendering {MARBLES_HSIZE}x{MARBLES_VSIZE} with bounding boxes...");
+    let start = Instant::now();
+    let canvas = camera.render_par(world);
+    let bvh = start.elapsed();
+    println!("chapter15:   with bounding boxes:    {bvh:.2?}");
+    println!(
+        "chapter15: speedup {:.1}x",
+        naive.as_secs_f64() / bvh.as_secs_f64()
+    );
+
+    let filename = "chapter15.ppm";
+    match canvas.write_ppm(filename, PpmFormat::P6) {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
+
+fn build_marbles_world() -> World {
+    let mut world = World::new();
+    world.lights = vec![Light::Point(PointLight::new(
+        Point {
+            x: -9.0,
+            y: 11.0,
+            z: -9.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    ))];
+
+    // A large sphere lit purely by ambient acts as a soft sky, giving the glass
+    // and metal marbles something colorful to refract and reflect. It is a
+    // top-level object, so it is always tested and is not part of the grid.
+    let mut sky = Shape::sphere();
+    let mut sky_material = Material::default();
+    sky_material.set_color(Color {
+        r: 0.55,
+        g: 0.7,
+        b: 0.95,
+    });
+    sky_material.set_ambient(0.7);
+    sky_material.set_diffuse(0.0);
+    sky_material.set_specular(0.0);
+    sky.set_material(sky_material);
+    sky.set_transform(scaling(1000.0, 1000.0, 1000.0));
+    world.add_object(sky);
+
+    // A reflective checkered floor that doubles the marbles in reflection.
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    let mut floor_pattern = Pattern::checker_pattern(
+        Color {
+            r: 0.18,
+            g: 0.18,
+            b: 0.2,
+        },
+        Color {
+            r: 0.32,
+            g: 0.32,
+            b: 0.34,
+        },
+    );
+    floor_pattern.set_transform(scaling(0.75, 0.75, 0.75));
+    floor_material.set_pattern(floor_pattern);
+    floor_material.set_specular(0.0);
+    floor_material.set_reflective(0.35);
+    floor.set_material(floor_material);
+    world.add_object(floor);
+
+    // Clear glass for half the marbles.
+    let glass = Material::glass();
+
+    // A palette of polished metals for the other half: gold, copper, silver and
+    // a cool blue steel. Metal is mostly reflection with a tight specular
+    // highlight and little diffuse.
+    let metal = |color: Color| {
+        let mut m = Material::default();
+        m.set_color(color);
+        m.set_ambient(0.05);
+        m.set_diffuse(0.15);
+        m.set_specular(1.0);
+        m.set_shininess(300.0);
+        m.set_reflective(0.85);
+        m
+    };
+    let metals = [
+        metal(Color {
+            r: 1.0,
+            g: 0.78,
+            b: 0.34,
+        }),
+        metal(Color {
+            r: 0.95,
+            g: 0.55,
+            b: 0.35,
+        }),
+        metal(Color {
+            r: 0.95,
+            g: 0.95,
+            b: 0.97,
+        }),
+        metal(Color {
+            r: 0.5,
+            g: 0.6,
+            b: 0.78,
+        }),
+    ];
+
+    const COLS: usize = 20;
+    const ROWS: usize = 14; // COLS * ROWS == 280 marbles
+    const RADIUS: Number = 0.33;
+    const SPACING: Number = 0.75;
+
+    // One parent group holds one sub-group per row; each marble is a child of
+    // its row group. compute_bounds() then gives every group a box.
+    let grid = world.add_object(Shape::group());
+    let mut metal_index = 0;
+    for row in 0..ROWS {
+        let row_group = world.add_child(grid, Shape::group());
+        let z = (row as Number - (ROWS as Number - 1.0) / 2.0) * SPACING;
+        for col in 0..COLS {
+            let x = (col as Number - (COLS as Number - 1.0) / 2.0) * SPACING;
+            let mut marble = Shape::sphere();
+            marble.set_transform(scaling(RADIUS, RADIUS, RADIUS).then(translation(x, RADIUS, z)));
+            // Checkerboard of glass and metal across the grid.
+            if (row + col) % 2 == 0 {
+                marble.set_material(glass.clone());
+            } else {
+                marble.set_material(metals[metal_index % metals.len()].clone());
+                metal_index += 1;
+            }
+            world.add_child(row_group, marble);
+        }
+    }
+
+    // Build the bounding boxes once, now that the scene is complete.
+    world.compute_bounds();
+    world
 }
 // A hexagon assembled from groups, following the book's chapter 14 example.
 // Each of the six sides is its own group holding a spherical corner and a

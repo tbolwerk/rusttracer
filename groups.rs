@@ -1,3 +1,4 @@
+use crate::bounds::BoundingBox;
 use crate::intersections::Intersections;
 use crate::materials::Material;
 use crate::rays::Ray;
@@ -12,6 +13,11 @@ use crate::shapes::{HasMaterial, Intersects, TransformData};
 pub struct Group {
     pub transform: TransformData,
     pub children: Vec<usize>,
+    // The group's bounding box in its own (local) space: the union of every
+    // child's bounds lifted through that child's transform. `None` until
+    // `World::compute_bounds` fills it in; once set, `World::intersect_object`
+    // tests it before recursing so a ray that misses skips all children.
+    pub bounds: Option<BoundingBox>,
 }
 
 impl Group {
@@ -19,6 +25,7 @@ impl Group {
         Self {
             transform: TransformData::default(),
             children: vec![],
+            bounds: None,
         }
     }
 }
@@ -154,6 +161,87 @@ mod tests {
         };
         let xs = w.intersect_object(g, &r);
         assert_eq!(xs.count(), 2);
+    }
+
+    #[test]
+    fn computing_bounds_sets_a_group_box_around_its_children() {
+        let mut w = World::new();
+        let g = w.add_object(Shape::group());
+        let mut s = Shape::sphere();
+        s.set_transform(translation(3.0, 0.0, 0.0));
+        w.add_child(g, s);
+        w.compute_bounds();
+        // unit sphere at x=3 spans x in [2,4], y and z in [-1,1]
+        let bounds = match &w.objects[g] {
+            Shape::Group(group) => group.bounds.expect("bounds should be computed"),
+            _ => panic!("expected a group"),
+        };
+        assert_eq!(
+            bounds.min,
+            Point {
+                x: 2.0,
+                y: -1.0,
+                z: -1.0
+            }
+        );
+        assert_eq!(
+            bounds.max,
+            Point {
+                x: 4.0,
+                y: 1.0,
+                z: 1.0
+            }
+        );
+    }
+
+    #[test]
+    fn culling_never_changes_intersection_results() {
+        // Build a small cluster of spheres inside a group.
+        let mut w = World::new();
+        let g = w.add_object(Shape::group());
+        for x in [-3.0, 0.0, 3.0] {
+            let mut s = Shape::sphere();
+            s.set_transform(translation(x, 0.0, 0.0));
+            w.add_child(g, s);
+        }
+        w.compute_bounds();
+        let mut w_off = w.clone();
+        w_off.use_bounds = false;
+
+        // A ray straight through the middle sphere: culling must not drop hits.
+        let through = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        assert_eq!(
+            w.intersect_object(g, &through).count(),
+            w_off.intersect_object(g, &through).count()
+        );
+
+        // A ray well above the cluster: culled to nothing, and brute force
+        // agrees there is nothing to hit.
+        let over = Ray {
+            origin: Point {
+                x: 0.0,
+                y: 10.0,
+                z: -5.0,
+            },
+            direction: Vector {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        assert_eq!(w.intersect_object(g, &over).count(), 0);
+        assert_eq!(w_off.intersect_object(g, &over).count(), 0);
     }
 
     #[test]

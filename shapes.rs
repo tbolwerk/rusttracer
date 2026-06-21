@@ -1,5 +1,5 @@
 use crate::{
-    cones::Cone, cubes::Cube, cylinders::Cylinder, groups::*, intersections::*,
+    bounds::BoundingBox, cones::Cone, cubes::Cube, cylinders::Cylinder, groups::*, intersections::*,
     materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere, tuples::*,
 };
 use std::sync::{Arc, Mutex};
@@ -101,6 +101,68 @@ impl Shape {
     // (accounting for any enclosing groups) is done by `World::normal_at`.
     pub fn local_normal_at(&self, point: &Point) -> Vector {
         shape_match!(self, s => s.local_normal_at(point))
+    }
+    // The shape's axis-aligned bounding box in its own object space, before its
+    // transform is applied. `World::compute_bounds` lifts these into group
+    // space to build each group's enclosing box. A group has no geometry of its
+    // own, so it returns an empty box here; its real bounds (the union of its
+    // children) are cached on the group by `World::compute_bounds`.
+    pub fn local_bounds(&self) -> BoundingBox {
+        match self {
+            Shape::Plane(_) => BoundingBox::new(
+                Point {
+                    x: Number::NEG_INFINITY,
+                    y: 0.0,
+                    z: Number::NEG_INFINITY,
+                },
+                Point {
+                    x: Number::INFINITY,
+                    y: 0.0,
+                    z: Number::INFINITY,
+                },
+            ),
+            Shape::Cylinder(c) => BoundingBox::new(
+                Point {
+                    x: -1.0,
+                    y: c.minimum,
+                    z: -1.0,
+                },
+                Point {
+                    x: 1.0,
+                    y: c.maximum,
+                    z: 1.0,
+                },
+            ),
+            Shape::Cone(c) => {
+                let limit = c.minimum.abs().max(c.maximum.abs());
+                BoundingBox::new(
+                    Point {
+                        x: -limit,
+                        y: c.minimum,
+                        z: -limit,
+                    },
+                    Point {
+                        x: limit,
+                        y: c.maximum,
+                        z: limit,
+                    },
+                )
+            }
+            Shape::Group(_) => BoundingBox::empty(),
+            // Sphere, Cube and the test shape all fit the unit cube.
+            _ => BoundingBox::new(
+                Point {
+                    x: -1.0,
+                    y: -1.0,
+                    z: -1.0,
+                },
+                Point {
+                    x: 1.0,
+                    y: 1.0,
+                    z: 1.0,
+                },
+            ),
+        }
     }
     pub fn with(shape: fn() -> Shape, transform: Matrix<4, 4>, material: Material) -> Shape {
         let mut s = shape();

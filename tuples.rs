@@ -11,6 +11,21 @@ pub fn sqrt(x: Number) -> Number {
     x.sqrt()
 }
 
+// Extension trait adding a tolerant `floor` to `Number`. A plane's hit point
+// carries a coordinate of ~1e-15 rather than exactly 0 (from
+// `t = -origin.y / direction.y` rounding), and plain `floor()` turns a tiny
+// negative into -1. In a checker that flips the parity from pixel to pixel and
+// shows up as speckle, so we nudge by EPSILON before flooring.
+pub trait StableFloor {
+    fn stable_floor(self) -> Self;
+}
+
+impl StableFloor for Number {
+    fn stable_floor(self) -> Self {
+        (self + EPSILON).floor()
+    }
+}
+
 pub const fn almost_eq(a: Number, b: Number) -> bool {
     (a - b).abs() <= EPSILON
 }
