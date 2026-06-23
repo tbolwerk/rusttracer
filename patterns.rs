@@ -1,6 +1,7 @@
 use crate::{
     matrices::Matrix,
     shapes::{HasTransform, Shape, TransformData},
+    texture_maps::*,
     tuples::*,
 };
 
@@ -37,6 +38,23 @@ pub(crate) struct TestPattern {
     transform: TransformData,
 }
 
+// A UV pattern projected onto a shape through a single mapping (spherical,
+// planar, or cylindrical).
+#[derive(PartialEq, Debug, Clone)]
+pub(crate) struct TextureMapPattern {
+    uv: UvPattern,
+    mapping: UvMapping,
+    transform: TransformData,
+}
+
+// Six UV patterns, one per cube face, selected per point by `face_from_point`.
+// Faces are stored in the order left, front, right, back, up, down.
+#[derive(PartialEq, Debug, Clone)]
+pub(crate) struct CubeMapPattern {
+    faces: [UvPattern; 6],
+    transform: TransformData,
+}
+
 impl TestPattern {
     fn color(&self, point: Point) -> Color {
         Color {
@@ -54,6 +72,8 @@ pub enum Pattern {
     Gradient(GradientPattern),
     Ring(RingPattern),
     Checker(CheckerPattern),
+    Texture(TextureMapPattern),
+    Cube(CubeMapPattern),
 }
 
 impl HasTransform for Pattern {
@@ -66,6 +86,8 @@ impl HasTransform for Pattern {
             }
             Pattern::Ring(ring_pattern) => ring_pattern.transform.set_transform(transform),
             Pattern::Checker(checker_pattern) => checker_pattern.transform.set_transform(transform),
+            Pattern::Texture(texture) => texture.transform.set_transform(transform),
+            Pattern::Cube(cube) => cube.transform.set_transform(transform),
         }
     }
     fn get_transform(&self) -> Matrix<4, 4> {
@@ -75,6 +97,8 @@ impl HasTransform for Pattern {
             Pattern::Gradient(gradient_pattern) => gradient_pattern.transform.get_transform(),
             Pattern::Ring(ring_pattern) => ring_pattern.transform.get_transform(),
             Pattern::Checker(checker_pattern) => checker_pattern.transform.get_transform(),
+            Pattern::Texture(texture) => texture.transform.get_transform(),
+            Pattern::Cube(cube) => cube.transform.get_transform(),
         }
     }
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
@@ -86,6 +110,8 @@ impl HasTransform for Pattern {
             }
             Pattern::Ring(ring_pattern) => ring_pattern.transform.get_inverse_transform(),
             Pattern::Checker(checker_pattern) => checker_pattern.transform.get_inverse_transform(),
+            Pattern::Texture(texture) => texture.transform.get_inverse_transform(),
+            Pattern::Cube(cube) => cube.transform.get_inverse_transform(),
         }
     }
 }
@@ -176,6 +202,28 @@ impl Pattern {
     pub fn checker_pattern(a: Color, b: Color) -> Self {
         Pattern::Checker(CheckerPattern::new(a, b))
     }
+    // A UV pattern projected through `mapping` (spherical/planar/cylindrical).
+    pub fn texture_map(uv: UvPattern, mapping: UvMapping) -> Self {
+        Pattern::Texture(TextureMapPattern {
+            uv,
+            mapping,
+            transform: TransformData::new(Matrix::identity(), None),
+        })
+    }
+    // Six UV patterns, one per cube face (left, front, right, back, up, down).
+    pub fn cube_map(
+        left: UvPattern,
+        front: UvPattern,
+        right: UvPattern,
+        back: UvPattern,
+        up: UvPattern,
+        down: UvPattern,
+    ) -> Self {
+        Pattern::Cube(CubeMapPattern {
+            faces: [left, front, right, back, up, down],
+            transform: TransformData::new(Matrix::identity(), None),
+        })
+    }
     pub fn pattern_at_shape(&self, object: &Shape, world_point: Point) -> Color {
         let object_point = match object.get_inverse_transform() {
             None => world_point,
@@ -194,6 +242,23 @@ impl Pattern {
             Pattern::Gradient(gradient_pattern) => gradient_pattern.color(point),
             Pattern::Ring(ring_pattern) => ring_pattern.color(point),
             Pattern::Checker(checker_pattern) => checker_pattern.color(point),
+            Pattern::Texture(texture) => {
+                let (u, v) = texture.mapping.map(point);
+                texture.uv.uv_pattern_at(u, v)
+            }
+            Pattern::Cube(cube) => {
+                let face = face_from_point(point);
+                let index = match face {
+                    CubeFace::Left => 0,
+                    CubeFace::Front => 1,
+                    CubeFace::Right => 2,
+                    CubeFace::Back => 3,
+                    CubeFace::Up => 4,
+                    CubeFace::Down => 5,
+                };
+                let (u, v) = cube_uv(face, point);
+                cube.faces[index].uv_pattern_at(u, v)
+            }
         }
     }
     fn a(&self) -> Color {
@@ -650,5 +715,91 @@ mod tests {
             }),
             black
         );
+    }
+
+    #[test]
+    fn checkers_applied_through_a_spherical_texture_map() {
+        let (black, white) = background();
+        let pattern = Pattern::texture_map(
+            UvPattern::checkers(16.0, 8.0, black, white),
+            UvMapping::Spherical,
+        );
+        // (point on the unit sphere -> expected color), from the book.
+        let cases = [
+            (Point { x: 0.4315, y: 0.4670, z: 0.7719 }, white),
+            (Point { x: -0.9654, y: 0.2552, z: -0.0534 }, black),
+            (Point { x: 0.1039, y: 0.7090, z: 0.6975 }, white),
+            (Point { x: -0.4986, y: -0.7856, z: -0.3663 }, black),
+            (Point { x: -0.0317, y: -0.9395, z: 0.3411 }, black),
+            (Point { x: 0.4809, y: -0.7721, z: 0.4154 }, black),
+            (Point { x: 0.0285, y: -0.9612, z: -0.2745 }, black),
+            (Point { x: -0.5734, y: -0.2162, z: -0.7903 }, white),
+            (Point { x: 0.7688, y: -0.1470, z: 0.6223 }, black),
+            (Point { x: -0.7652, y: 0.2175, z: 0.6060 }, black),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(pattern.pattern_at(p), expected, "p={p:?}");
+        }
+    }
+
+    #[test]
+    fn finding_the_colors_on_a_mapped_cube() {
+        let red = Color { r: 1.0, g: 0.0, b: 0.0 };
+        let yellow = Color { r: 1.0, g: 1.0, b: 0.0 };
+        let brown = Color { r: 1.0, g: 0.5, b: 0.0 };
+        let green = Color { r: 0.0, g: 1.0, b: 0.0 };
+        let cyan = Color { r: 0.0, g: 1.0, b: 1.0 };
+        let blue = Color { r: 0.0, g: 0.0, b: 1.0 };
+        let purple = Color { r: 1.0, g: 0.0, b: 1.0 };
+        let white = Color { r: 1.0, g: 1.0, b: 1.0 };
+        let pattern = Pattern::cube_map(
+            UvPattern::align_check(yellow, cyan, red, blue, brown), // left
+            UvPattern::align_check(cyan, red, yellow, brown, green), // front
+            UvPattern::align_check(red, yellow, purple, green, white), // right
+            UvPattern::align_check(green, purple, cyan, white, blue), // back
+            UvPattern::align_check(brown, cyan, purple, red, yellow), // up
+            UvPattern::align_check(purple, brown, green, blue, white), // down
+        );
+        let cases = [
+            // Left
+            (Point { x: -1.0, y: 0.0, z: 0.0 }, yellow),
+            (Point { x: -1.0, y: 0.9, z: -0.9 }, cyan),
+            (Point { x: -1.0, y: 0.9, z: 0.9 }, red),
+            (Point { x: -1.0, y: -0.9, z: -0.9 }, blue),
+            (Point { x: -1.0, y: -0.9, z: 0.9 }, brown),
+            // Front
+            (Point { x: 0.0, y: 0.0, z: 1.0 }, cyan),
+            (Point { x: -0.9, y: 0.9, z: 1.0 }, red),
+            (Point { x: 0.9, y: 0.9, z: 1.0 }, yellow),
+            (Point { x: -0.9, y: -0.9, z: 1.0 }, brown),
+            (Point { x: 0.9, y: -0.9, z: 1.0 }, green),
+            // Right
+            (Point { x: 1.0, y: 0.0, z: 0.0 }, red),
+            (Point { x: 1.0, y: 0.9, z: 0.9 }, yellow),
+            (Point { x: 1.0, y: 0.9, z: -0.9 }, purple),
+            (Point { x: 1.0, y: -0.9, z: 0.9 }, green),
+            (Point { x: 1.0, y: -0.9, z: -0.9 }, white),
+            // Back
+            (Point { x: 0.0, y: 0.0, z: -1.0 }, green),
+            (Point { x: 0.9, y: 0.9, z: -1.0 }, purple),
+            (Point { x: -0.9, y: 0.9, z: -1.0 }, cyan),
+            (Point { x: 0.9, y: -0.9, z: -1.0 }, white),
+            (Point { x: -0.9, y: -0.9, z: -1.0 }, blue),
+            // Up
+            (Point { x: 0.0, y: 1.0, z: 0.0 }, brown),
+            (Point { x: -0.9, y: 1.0, z: -0.9 }, cyan),
+            (Point { x: 0.9, y: 1.0, z: -0.9 }, purple),
+            (Point { x: -0.9, y: 1.0, z: 0.9 }, red),
+            (Point { x: 0.9, y: 1.0, z: 0.9 }, yellow),
+            // Down
+            (Point { x: 0.0, y: -1.0, z: 0.0 }, purple),
+            (Point { x: -0.9, y: -1.0, z: 0.9 }, brown),
+            (Point { x: 0.9, y: -1.0, z: 0.9 }, green),
+            (Point { x: -0.9, y: -1.0, z: -0.9 }, blue),
+            (Point { x: 0.9, y: -1.0, z: -0.9 }, white),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(pattern.pattern_at(p), expected, "p={p:?}");
+        }
     }
 }

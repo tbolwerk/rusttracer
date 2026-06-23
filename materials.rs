@@ -103,13 +103,19 @@ impl Material {
     }
 }
 
+// `intensity` is the fraction of the light visible from `point` (1.0 fully lit,
+// 0.0 fully shadowed, in between for an area light's penumbra), as returned by
+// `World::intensity_at`. Diffuse and specular are summed over every sample point
+// on the light's surface and averaged, so an area light also softens highlights,
+// then scaled by `intensity`. A point light is a single sample, recovering the
+// original Phong result with `intensity` standing in for the old shadow flag.
 pub fn lightning(
     object: &Shape,
     light: Light,
     point: Point,
     eyev: Vector,
     normalv: Vector,
-    in_shadow: bool,
+    intensity: Number,
 ) -> Color {
     let material = object.get_material();
     let color = match material.pattern {
@@ -117,34 +123,34 @@ pub fn lightning(
         Some(ref pattern) => pattern.pattern_at_shape(object, point),
     };
     let effective_color = color * light.intensity();
-    let lightv = (light.position() - point).normalize();
     let ambient = effective_color * material.ambient;
 
-    if in_shadow {
-        return ambient;
-    }
-
-    let light_dot_normal = lightv.dot(normalv);
-    let mut diffuse = Color {
+    let black = Color {
         r: 0.0,
         g: 0.0,
         b: 0.0,
     };
-    let mut specular = Color {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-    };
-    if light_dot_normal >= 0.0 {
-        diffuse = effective_color * material.diffuse * light_dot_normal;
-        let reflectv = (-lightv).reflect(normalv);
-        let reflect_dot_eye = reflectv.dot(eyev);
-        if reflect_dot_eye > 0.0 {
-            let factor = reflect_dot_eye.powf(material.shininess);
-            specular = light.intensity() * material.specular * factor;
+    let mut diffuse_sum = black;
+    let mut specular_sum = black;
+    for v in 0..light.vsteps() {
+        for u in 0..light.usteps() {
+            let lightv = (light.point_on_light(u, v) - point).normalize();
+            let light_dot_normal = lightv.dot(normalv);
+            if light_dot_normal >= 0.0 {
+                diffuse_sum = diffuse_sum + effective_color * material.diffuse * light_dot_normal;
+                let reflectv = (-lightv).reflect(normalv);
+                let reflect_dot_eye = reflectv.dot(eyev);
+                if reflect_dot_eye > 0.0 {
+                    let factor = reflect_dot_eye.powf(material.shininess);
+                    specular_sum = specular_sum + light.intensity() * material.specular * factor;
+                }
+            }
         }
     }
-    ambient + diffuse + specular
+    let samples = light.samples() as Number;
+    let diffuse = diffuse_sum * (1.0 / samples);
+    let specular = specular_sum * (1.0 / samples);
+    ambient + (diffuse + specular) * intensity
 }
 #[test]
 fn the_default_meterial() {
@@ -211,7 +217,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let result = lightning(&object, light, position, eyev, normalv, false);
+        let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
             Color {
@@ -249,7 +255,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let result = lightning(&object, light, position, eyev, normalv, false);
+        let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
             Color {
@@ -287,7 +293,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let result = lightning(&object, light, position, eyev, normalv, false);
+        let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
             Color {
@@ -325,7 +331,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let result = lightning(&object, light, position, eyev, normalv, false);
+        let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
             Color {
@@ -363,7 +369,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let result = lightning(&object, light, position, eyev, normalv, false);
+        let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
             Color {
@@ -401,7 +407,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let in_shadow = true;
+        let in_shadow = 0.0;
         let result = lightning(&object, light, position, eyev, normalv, in_shadow);
         assert_eq!(
             Color {
@@ -465,7 +471,7 @@ mod tests {
             },
             eyev,
             normalv,
-            false,
+            1.0,
         );
         let c2 = lightning(
             &object,
@@ -477,7 +483,7 @@ mod tests {
             },
             eyev,
             normalv,
-            false,
+            1.0,
         );
         assert_eq!(
             c1,

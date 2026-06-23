@@ -10,6 +10,8 @@ mod groups;
 use groups::*;
 mod cones;
 use cones::*;
+mod csg;
+use csg::*;
 mod cylinders;
 mod obj_parser;
 use cylinders::*;
@@ -32,6 +34,8 @@ use lights::*;
 mod intersections;
 mod rays;
 mod spheres;
+mod texture_maps;
+use texture_maps::*;
 mod triangles;
 use rays::*;
 mod transformations;
@@ -55,6 +59,18 @@ fn main() -> Result<(), ()> {
         teapot();
         return Ok(());
     }
+    // `cargo run --release -- csg` renders just the chapter 16 CSG widget.
+    if std::env::args().any(|a| a == "csg") {
+        chapter16();
+        return Ok(());
+    }
+    // `cargo run --release -- bonus` renders the combined bonus-chapters scene
+    // (area light, texture mapping, focal blur, divide). Kept out of the default
+    // chapter sweep because lens + area-light sampling makes it slow.
+    if std::env::args().any(|a| a == "bonus") {
+        chapter17();
+        return Ok(());
+    }
     let _ = chapter1();
     let _ = chapter4();
     let _ = chapter5();
@@ -67,6 +83,7 @@ fn main() -> Result<(), ()> {
     let _ = chapter13();
     let _ = chapter14();
     let _ = chapter15();
+    chapter16();
     Ok(())
 }
 // A field of 280 glass and metal marbles on a reflective floor. The marbles are
@@ -124,6 +141,342 @@ fn chapter15() {
         naive.as_secs_f64() / bvh.as_secs_f64()
     );
     let filename = "chapter15.ppm";
+    match canvas.write_ppm(filename, PpmFormat::P6) {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
+
+// The iconic CSG widget, which exercises all three operations in one object:
+//   Difference( Intersection(cube, sphere), Union(3 cylinders) )
+// The intersection of a cube and a slightly larger sphere is a cube with rounded
+// edges; subtracting the union of three axis-aligned cylinders bores a hole
+// straight through each axis. The rounded shell is red ceramic; the bored walls
+// are polished gold, so the holes read clearly.
+fn build_csg_world() -> World {
+    let mut world = World::new();
+    world.lights = vec![Light::Point(PointLight::new(
+        Point {
+            x: -8.0,
+            y: 10.0,
+            z: -8.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    ))];
+
+    // Ambient sky sphere for soft fill and reflections.
+    let mut sky = Shape::sphere();
+    let mut sky_material = Material::default();
+    sky_material.set_color(Color {
+        r: 0.55,
+        g: 0.7,
+        b: 0.95,
+    });
+    sky_material.set_ambient(0.7);
+    sky_material.set_diffuse(0.0);
+    sky_material.set_specular(0.0);
+    sky.set_material(sky_material);
+    sky.set_transform(scaling(1000.0, 1000.0, 1000.0));
+    world.add_object(sky);
+
+    // Reflective checkered floor.
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    let mut floor_pattern = Pattern::checker_pattern(
+        Color {
+            r: 0.18,
+            g: 0.18,
+            b: 0.2,
+        },
+        Color {
+            r: 0.32,
+            g: 0.32,
+            b: 0.34,
+        },
+    );
+    floor_pattern.set_transform(scaling(0.75, 0.75, 0.75));
+    floor_material.set_pattern(floor_pattern);
+    floor_material.set_specular(0.0);
+    floor_material.set_reflective(0.3);
+    floor.set_material(floor_material);
+    world.add_object(floor);
+
+    // Red ceramic for the rounded shell.
+    let mut shell = Material::default();
+    shell.set_color(Color {
+        r: 0.8,
+        g: 0.2,
+        b: 0.2,
+    });
+    shell.set_diffuse(0.7);
+    shell.set_specular(0.4);
+    shell.set_shininess(180.0);
+    shell.set_reflective(0.1);
+
+    // Polished gold for the surfaces revealed inside the bored holes.
+    let mut gold = Material::default();
+    gold.set_color(Color {
+        r: 1.0,
+        g: 0.8,
+        b: 0.3,
+    });
+    gold.set_ambient(0.1);
+    gold.set_diffuse(0.4);
+    gold.set_specular(0.9);
+    gold.set_shininess(300.0);
+    gold.set_reflective(0.4);
+
+    // CSG nodes are created before their children so each parent keeps a lower
+    // arena id than its children, which `compute_bounds` relies on.
+    let hero = world.add_object(Shape::csg(CsgOperation::Difference));
+
+    // left = rounded cube = Intersection(cube, slightly larger sphere)
+    let rounded = world.add_object(Shape::csg(CsgOperation::Intersection));
+    let mut cube = Shape::cube();
+    cube.set_material(shell.clone());
+    let cube_id = world.add_object(cube);
+    let mut sphere = Shape::sphere();
+    sphere.set_transform(scaling(1.3, 1.3, 1.3));
+    sphere.set_material(shell.clone());
+    let sphere_id = world.add_object(sphere);
+    world.set_csg_children(rounded, cube_id, sphere_id);
+
+    // right = drill = Union of three finite cylinders, one per axis. Finite (not
+    // infinite) so the CSG bounding box stays finite and cullable.
+    let drill = |transform: Matrix<4, 4>| {
+        let mut c = Shape::Cylinder(Cylinder::new(-1.5, 1.5, false));
+        c.set_transform(scaling(0.5, 1.0, 0.5).then(transform));
+        c.set_material(gold.clone());
+        c
+    };
+    let bore = world.add_object(Shape::csg(CsgOperation::Union));
+    let bore_xy = world.add_object(Shape::csg(CsgOperation::Union));
+    let cyl_y = world.add_object(drill(Matrix::identity()));
+    let cyl_x = world.add_object(drill(rotation_z(PI / 2.0)));
+    world.set_csg_children(bore_xy, cyl_y, cyl_x);
+    let cyl_z = world.add_object(drill(rotation_x(PI / 2.0)));
+    world.set_csg_children(bore, bore_xy, cyl_z);
+
+    world.set_csg_children(hero, rounded, bore);
+
+    // Lift the widget onto the floor and turn it for a three-quarter view.
+    world.objects[hero].set_transform(rotation_y(0.5).then(translation(0.0, 1.0, 0.0)));
+
+    world.compute_bounds();
+    world
+}
+
+// A single scene exercising all four bonus chapters at once:
+//   - an area light (soft-edged shadows),
+//   - texture mapping (a planar-mapped floor and a spherical-mapped sphere),
+//   - focal blur (the front sphere is in focus, the others blur with distance),
+//   - a `divide`d cluster of small spheres (bounding-volume hierarchy).
+fn build_bonus_world() -> World {
+    let mut world = World::new();
+
+    // An overhead area light: a 4x4 grid of samples gives soft shadow edges.
+    world.lights = vec![Light::area_light(
+        Point {
+            x: -3.0,
+            y: 5.0,
+            z: -5.0,
+        },
+        Vector {
+            x: 3.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        4,
+        Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 3.0,
+        },
+        4,
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    )];
+
+    // Floor: a planar-mapped UV checker (texture mapping), matte so the area
+    // light's soft shadows read clearly.
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    floor_material.set_pattern(Pattern::texture_map(
+        UvPattern::checkers(
+            2.0,
+            2.0,
+            Color {
+                r: 0.85,
+                g: 0.85,
+                b: 0.85,
+            },
+            Color {
+                r: 0.4,
+                g: 0.4,
+                b: 0.45,
+            },
+        ),
+        UvMapping::Planar,
+    ));
+    floor_material.set_specular(0.0);
+    floor.set_material(floor_material);
+    world.add_object(floor);
+
+    // Front sphere: a spherical-mapped checker (texture mapping). It sits at the
+    // focal plane, so it stays sharp while the others blur.
+    let mut globe = Shape::sphere();
+    globe.set_transform(translation(0.0, 1.0, 0.0));
+    let mut globe_material = Material::default();
+    globe_material.set_pattern(Pattern::texture_map(
+        UvPattern::checkers(
+            20.0,
+            10.0,
+            Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.55,
+            },
+            Color {
+                r: 0.95,
+                g: 0.95,
+                b: 1.0,
+            },
+        ),
+        UvMapping::Spherical,
+    ));
+    globe_material.set_diffuse(0.8);
+    globe_material.set_specular(0.3);
+    globe.set_material(globe_material);
+    world.add_object(globe);
+
+    // Two solid spheres set progressively farther back, so focal blur throws
+    // them out of focus by increasing amounts.
+    let solid = |color: Color| {
+        let mut m = Material::default();
+        m.set_color(color);
+        m.set_diffuse(0.7);
+        m.set_specular(0.4);
+        m.set_shininess(150.0);
+        m
+    };
+    let mut mid = Shape::sphere();
+    mid.set_transform(translation(2.6, 1.0, 3.0));
+    mid.set_material(solid(Color {
+        r: 0.8,
+        g: 0.2,
+        b: 0.2,
+    }));
+    world.add_object(mid);
+    let mut far = Shape::sphere();
+    far.set_transform(translation(5.0, 1.0, 8.0));
+    far.set_material(solid(Color {
+        r: 1.0,
+        g: 0.8,
+        b: 0.3,
+    }));
+    world.add_object(far);
+
+    // A 6x6 cluster of small spheres, then subdivided into a bounding-volume
+    // hierarchy with `divide` (bounding boxes & hierarchies).
+    let cluster = world.add_object(Shape::group());
+    let bead = solid(Color {
+        r: 0.2,
+        g: 0.7,
+        b: 0.6,
+    });
+    for row in 0..6 {
+        for col in 0..6 {
+            let mut s = Shape::sphere();
+            let x = -1.0 + col as Number * 0.4;
+            let y = 0.18 + row as Number * 0.4;
+            s.set_transform(scaling(0.18, 0.18, 0.18).then(translation(x, y, 0.0)));
+            s.set_material(bead.clone());
+            world.add_child(cluster, s);
+        }
+    }
+    world.objects[cluster].set_transform(translation(-3.0, 0.0, 1.0));
+    // Recursively box the cluster: groups of >=4 children split in half.
+    world.divide(cluster, 4);
+
+    world.compute_bounds();
+    world
+}
+
+// `cargo run --release -- bonus` renders the combined bonus-chapters scene.
+fn chapter17() {
+    const W: usize = 700;
+    const H: usize = 450;
+    println!("chapter17: building the bonus scene (area light, textures, focal blur, divide)...");
+    let world = build_bonus_world();
+    println!("chapter17: {} arena objects", world.objects.len());
+
+    let from = Point {
+        x: 0.0,
+        y: 2.5,
+        z: -7.0,
+    };
+    let to = Point {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let mut camera: Camera<W, H> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        from,
+        to,
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    // Focus on the front sphere; a positive aperture blurs everything else.
+    let focal_distance = (to - from).magnitude();
+    camera.set_focal_blur(0.12, focal_distance, 24);
+
+    println!("chapter17: rendering {W}x{H} (this samples the lens + area light, so it is slow)...");
+    let start = Instant::now();
+    let canvas = camera.render_par(world);
+    println!("chapter17: rendered in {:.2?}", start.elapsed());
+    let filename = "chapter17.ppm";
+    match canvas.write_ppm(filename, PpmFormat::P6) {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
+    }
+}
+
+fn chapter16() {
+    println!("chapter16: building the CSG widget...");
+    let world = build_csg_world();
+
+    let mut camera: Camera<800, 600> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 3.0,
+            y: 3.0,
+            z: -5.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+    println!("chapter16: rendering 800x600...");
+    let canvas = camera.render_par(world);
+    let filename = "chapter16.ppm";
     match canvas.write_ppm(filename, PpmFormat::P6) {
         Err(_) => println!("Something went wrong!"),
         Ok(()) => println!("Succesfully written {filename}!"),
@@ -241,11 +594,22 @@ fn flythrough() {
             yaw: 0.0,
             pitch: -0.18,
         },
+        Scene {
+            name: "csg",
+            build: build_csg_world,
+            pos: Point {
+                x: 3.0,
+                y: 3.0,
+                z: -5.0,
+            },
+            yaw: -0.5,
+            pitch: -0.3,
+        },
     ];
 
     let mut camera: Camera<LIVE_W, LIVE_H> = Camera::new(PI / 3.0);
     let title = |name: &str| {
-        format!("rusttracer [{name}] - 1-5 scene, N next, WASD/RF move, arrows look, Esc quit")
+        format!("rusttracer [{name}] - 1-6 scene, N next, WASD/RF move, arrows look, Esc quit")
     };
     let mut window = Window::new(
         &title(scenes[0].name),
@@ -276,7 +640,14 @@ fn flythrough() {
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Scene switching: digits 1-4 pick a scene, N cycles to the next. Each
         // switch rebuilds the world and resets the camera to that scene's pose.
-        let digit_keys = [Key::Key1, Key::Key2, Key::Key3, Key::Key4, Key::Key5];
+        let digit_keys = [
+            Key::Key1,
+            Key::Key2,
+            Key::Key3,
+            Key::Key4,
+            Key::Key5,
+            Key::Key6,
+        ];
         let mut next = None;
         for (i, key) in digit_keys.iter().enumerate() {
             if i < scenes.len() && window.is_key_pressed(*key, KeyRepeat::No) {
@@ -381,12 +752,19 @@ fn forward(yaw: Number, pitch: Number) -> Vector {
     }
 }
 
+// The live flythrough scene uses the smooth-shaded teapot.
+fn build_teapot_world() -> World {
+    load_teapot(true)
+}
+
 // Load the Utah teapot (teapot.obj, ~6300 flat triangles) onto a reflective
 // checkered floor under a blue ambient sky. The model is read from the working
 // directory and packed into a bounding volume hierarchy so it is fast enough to
 // fly around; it already sits on the y=0 plane in its own coordinates, so it
-// rests on the floor without any extra transform.
-fn build_teapot_world() -> World {
+// rests on the floor without any extra transform. `smooth` chooses between
+// faceted (the file's flat triangles) and Phong-smoothed shading, the two ways
+// the book's "Putting It Together" suggests rendering a model.
+fn load_teapot(smooth: bool) -> World {
     let mut world = World::new();
     world.lights = vec![Light::Point(PointLight::new(
         Point {
@@ -455,21 +833,24 @@ fn build_teapot_world() -> World {
     let text = std::fs::read_to_string("teapot.obj")
         .expect("teapot.obj not found in the working directory");
     let parser = obj_parser::parse_obj(&text);
-    let _teapot = parser.to_world_bvh(&mut world, 16, teapot_material);
+    if smooth {
+        parser.to_world_bvh_smooth(&mut world, 16, teapot_material);
+    } else {
+        parser.to_world_bvh(&mut world, 16, teapot_material);
+    }
 
     // Build every group's bounding box so the BVH actually culls.
     world.compute_bounds();
     world
 }
 
-// `cargo run --release -- teapot` renders a single still of the teapot scene to
-// teapot.ppm, separate from the interactive viewer.
+// `cargo run --release -- teapot` renders the teapot scene to two stills, the
+// way the book's chapter 15 "Putting It Together" suggests: teapot.ppm uses the
+// file's flat triangles (faceted), and teapot_smooth.ppm interpolates synthesized
+// vertex normals (smooth). Both share one camera so they line up for comparison.
 fn teapot() {
     const W: usize = 600;
     const H: usize = 400;
-    println!("teapot: loading teapot.obj and building the BVH...");
-    let world = build_teapot_world();
-    println!("teapot: {} arena objects", world.objects.len());
 
     let mut camera: Camera<W, H> = Camera::new(PI / 3.0);
     camera.set_transform(view_transform(
@@ -490,15 +871,21 @@ fn teapot() {
         },
     ));
 
-    println!("teapot: rendering {W}x{H}...");
-    let start = Instant::now();
-    let canvas = camera.render_par(world);
-    println!("teapot: rendered in {:.2?}", start.elapsed());
+    for (smooth, filename) in [(false, "teapot.ppm"), (true, "teapot_smooth.ppm")] {
+        let label = if smooth { "smooth" } else { "faceted" };
+        println!("teapot: loading teapot.obj ({label}) and building the BVH...");
+        let world = load_teapot(smooth);
+        println!("teapot:   {} arena objects", world.objects.len());
 
-    let filename = "teapot.ppm";
-    match canvas.write_ppm(filename, PpmFormat::P6) {
-        Err(_) => println!("Something went wrong!"),
-        Ok(()) => println!("Succesfully written {filename}!"),
+        println!("teapot: rendering {W}x{H} ({label})...");
+        let start = Instant::now();
+        let canvas = camera.render_par(world);
+        println!("teapot:   rendered in {:.2?}", start.elapsed());
+
+        match canvas.write_ppm(filename, PpmFormat::P6) {
+            Err(_) => println!("Something went wrong!"),
+            Ok(()) => println!("teapot: wrote {filename}"),
+        }
     }
 }
 
@@ -1546,7 +1933,7 @@ fn chapter6() {
                     let normal = sphere.normal_at(&point);
                     let eye = -ray.direction;
 
-                    let color = lightning(&sphere, light.clone(), point, eye, normal, false);
+                    let color = lightning(&sphere, light.clone(), point, eye, normal, 1.0);
                     canvas.write_pixel(color, y, x);
                 }
             }

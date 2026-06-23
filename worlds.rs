@@ -1,4 +1,5 @@
 use crate::bounds::BoundingBox;
+use crate::csg::intersection_allowed;
 use crate::intersections::Computations;
 #[cfg(test)]
 use crate::intersections::Intersection;
@@ -74,36 +75,206 @@ impl World {
                 }
                 xs
             }
+            Shape::Csg(csg) => {
+                let local_ray = match self.objects[id].get_inverse_transform() {
+                    None => ray.clone(),
+                    Some(inverse) => ray.transform(inverse),
+                };
+                // Same bounding-box cull as a group: miss the box, skip both
+                // children and the filtering entirely.
+                if self.use_bounds {
+                    if let Some(bounds) = &csg.bounds {
+                        if !bounds.intersects(&local_ray) {
+                            return Intersections::new(vec![]);
+                        }
+                    }
+                }
+                // Intersect both children, then keep only the hits the operation
+                // allows. `extend` re-sorts, so the combined list is in t-order,
+                // which `filter_intersections` relies on.
+                let mut xs = self.intersect_object(csg.left.unwrap(), &local_ray);
+                xs.extend(self.intersect_object(csg.right.unwrap(), &local_ray));
+                self.filter_intersections(id, xs)
+            }
             leaf => leaf.intersect(ray, id),
         }
     }
-    // The bounding box of object `id` in its own object space: a group's cached
-    // box, or a primitive's `local_bounds`.
-    fn bounds_of(&self, id: usize) -> BoundingBox {
-        match &self.objects[id] {
-            Shape::Group(group) => group.bounds.unwrap_or(BoundingBox::empty()),
-            other => other.local_bounds(),
+    // Whether the subtree rooted at `node` contains the leaf `object`. A CSG uses
+    // this to decide whether a hit belongs to its left or right child, even when
+    // that child is itself a group or CSG. Mirrors the book's `includes`.
+    pub fn includes(&self, node: usize, object: usize) -> bool {
+        if node == object {
+            return true;
+        }
+        match &self.objects[node] {
+            Shape::Group(group) => group.children.iter().any(|&c| self.includes(c, object)),
+            Shape::Csg(csg) => {
+                csg.left.map_or(false, |l| self.includes(l, object))
+                    || csg.right.map_or(false, |r| self.includes(r, object))
+            }
+            _ => false,
         }
     }
-    // Compute and cache every group's bounding box. Call once after a scene is
-    // fully assembled and before rendering. Children always receive a higher
-    // arena id than their parent (see `add_child`), so iterating ids in reverse
-    // guarantees a child's box is finalized before its parent reads it.
+    // Keep only the intersections that lie on the CSG's combined surface. Walking
+    // the hits in t-order, track whether the ray is currently inside the left and
+    // right children; for each hit, `intersection_allowed` decides if it survives,
+    // then crossing that surface flips the corresponding inside flag.
+    pub fn filter_intersections(&self, csg_id: usize, xs: Intersections) -> Intersections {
+        let (operation, left) = match &self.objects[csg_id] {
+            Shape::Csg(csg) => (csg.operation, csg.left.unwrap()),
+            _ => return xs,
+        };
+        let mut inside_left = false;
+        let mut inside_right = false;
+        let mut result = vec![];
+        for intersection in &xs.intersections {
+            let left_hit = self.includes(left, intersection.object_id);
+            if intersection_allowed(operation, left_hit, inside_left, inside_right) {
+                result.push(*intersection);
+            }
+            if left_hit {
+                inside_left = !inside_left;
+            } else {
+                inside_right = !inside_right;
+            }
+        }
+        Intersections::new(result)
+    }
+    // Object `id`'s bounding box in its own space, computed from scratch by
+    // recursing into children (a leaf's `local_bounds`, a group/CSG's union of
+    // its children's parent-space boxes). Unlike the cached `bounds`, this does
+    // not depend on `compute_bounds` having run or on arena id ordering, so it is
+    // safe to call mid-`divide` while the hierarchy is being rebuilt.
+    fn object_bounds(&self, id: usize) -> BoundingBox {
+        let children: Vec<usize> = match &self.objects[id] {
+            Shape::Group(group) => group.children.clone(),
+            Shape::Csg(csg) => [csg.left, csg.right].into_iter().flatten().collect(),
+            other => return other.local_bounds(),
+        };
+        let mut bb = BoundingBox::empty();
+        for child in children {
+            bb.add_box(&self.parent_space_bounds(child));
+        }
+        bb
+    }
+    // Object `id`'s box expressed in its parent's space: its own-space box lifted
+    // through its transform.
+    fn parent_space_bounds(&self, id: usize) -> BoundingBox {
+        self.object_bounds(id)
+            .transform(self.objects[id].get_transform())
+    }
+    // Compute and cache every group's and CSG node's bounding box. Call once after
+    // a scene is fully assembled (and after any `divide`) and before rendering.
+    // Recurses from each root so it is independent of arena id ordering, which
+    // `divide` does not preserve when it reparents children into new sub-groups.
     pub fn compute_bounds(&mut self) {
-        for id in (0..self.objects.len()).rev() {
-            let children = match &self.objects[id] {
-                Shape::Group(group) => group.children.clone(),
-                _ => continue,
-            };
-            let mut bb = BoundingBox::empty();
-            for child in children {
-                let child_bounds = self.bounds_of(child);
-                let child_transform = self.objects[child].get_transform();
-                bb.add_box(&child_bounds.transform(child_transform));
+        let roots: Vec<usize> = (0..self.objects.len())
+            .filter(|&id| self.objects[id].parent().is_none())
+            .collect();
+        for root in roots {
+            self.compute_bounds_of(root);
+        }
+    }
+    // Cache the box for `id` (if it is a group/CSG) and return its own-space box,
+    // computing children first.
+    fn compute_bounds_of(&mut self, id: usize) -> BoundingBox {
+        let children: Vec<usize> = match &self.objects[id] {
+            Shape::Group(group) => group.children.clone(),
+            Shape::Csg(csg) => [csg.left, csg.right].into_iter().flatten().collect(),
+            other => return other.local_bounds(),
+        };
+        let mut bb = BoundingBox::empty();
+        for child in children {
+            let child_bounds = self.compute_bounds_of(child);
+            let child_transform = self.objects[child].get_transform();
+            bb.add_box(&child_bounds.transform(child_transform));
+        }
+        match &mut self.objects[id] {
+            Shape::Group(group) => group.bounds = Some(bb),
+            Shape::Csg(csg) => csg.bounds = Some(bb),
+            _ => {}
+        }
+        bb
+    }
+    // Split the children of group `id` by which half of the group's box they fall
+    // entirely within. Children straddling the divide stay on the group; the
+    // returned (left, right) lists are removed from it (to be re-homed by
+    // `make_subgroup`). The book's `partition_children`.
+    fn partition_children(&mut self, id: usize) -> (Vec<usize>, Vec<usize>) {
+        let (left_box, right_box) = self.object_bounds(id).split();
+        let children: Vec<usize> = match &self.objects[id] {
+            Shape::Group(group) => group.children.clone(),
+            _ => return (vec![], vec![]),
+        };
+        let mut left = vec![];
+        let mut right = vec![];
+        let mut kept = vec![];
+        for child in children {
+            let cbox = self.parent_space_bounds(child);
+            if left_box.contains_box(&cbox) {
+                left.push(child);
+            } else if right_box.contains_box(&cbox) {
+                right.push(child);
+            } else {
+                kept.push(child);
             }
-            if let Shape::Group(group) = &mut self.objects[id] {
-                group.bounds = Some(bb);
+        }
+        if let Shape::Group(group) = &mut self.objects[id] {
+            group.children = kept;
+        }
+        (left, right)
+    }
+    // Wrap `children` in a new sub-group and attach it to group `id`. The book's
+    // `make_subgroup`.
+    fn make_subgroup(&mut self, id: usize, children: Vec<usize>) {
+        let subgroup = self.objects.len();
+        self.objects.push(Shape::group());
+        self.objects[subgroup].set_parent(Some(id));
+        for child in &children {
+            self.objects[*child].set_parent(Some(subgroup));
+        }
+        if let Shape::Group(sub) = &mut self.objects[subgroup] {
+            sub.children = children;
+        }
+        if let Shape::Group(group) = &mut self.objects[id] {
+            group.children.push(subgroup);
+        }
+    }
+    // Recursively subdivide group `id` into a bounding-volume hierarchy: when a
+    // group has at least `threshold` children, partition them into two halves and
+    // tuck each half into its own sub-group, then recurse. A CSG node has no
+    // children to partition, so it just forwards `divide` to its two operands.
+    // The book's `divide`. Run `compute_bounds` afterward to cache the new boxes.
+    pub fn divide(&mut self, id: usize, threshold: usize) {
+        match &self.objects[id] {
+            Shape::Group(group) => {
+                if threshold <= group.children.len() {
+                    let (left, right) = self.partition_children(id);
+                    if !left.is_empty() {
+                        self.make_subgroup(id, left);
+                    }
+                    if !right.is_empty() {
+                        self.make_subgroup(id, right);
+                    }
+                }
+                let children = match &self.objects[id] {
+                    Shape::Group(group) => group.children.clone(),
+                    _ => vec![],
+                };
+                for child in children {
+                    self.divide(child, threshold);
+                }
             }
+            Shape::Csg(csg) => {
+                let (left, right) = (csg.left, csg.right);
+                if let Some(left) = left {
+                    self.divide(left, threshold);
+                }
+                if let Some(right) = right {
+                    self.divide(right, threshold);
+                }
+            }
+            _ => {}
         }
     }
     // Book's world_to_object: walk up the parent chain applying each ancestor's
@@ -162,6 +333,18 @@ impl World {
         }
         id
     }
+    // Attach the two children of a CSG node. Each must already be in the arena
+    // (added after the CSG node, so its id is higher, which keeps the reverse-id
+    // ordering `compute_bounds` depends on). The book's `csg(op, left, right)`
+    // sets the children's parent to the CSG; this does the same by id.
+    pub fn set_csg_children(&mut self, csg_id: usize, left: usize, right: usize) {
+        self.objects[left].set_parent(Some(csg_id));
+        self.objects[right].set_parent(Some(csg_id));
+        if let Shape::Csg(csg) = &mut self.objects[csg_id] {
+            csg.left = Some(left);
+            csg.right = Some(right);
+        }
+    }
     pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
         let object = &self.objects[comps.object_id];
         // Sum the contribution of every light. Each light is shadow-tested
@@ -174,7 +357,7 @@ impl World {
             b: 0.0,
         };
         for light in &self.lights {
-            let shadowed = self.is_shadowed(comps.over_point, light);
+            let intensity = self.intensity_at(comps.over_point, light);
             surface = surface
                 + lightning(
                     &object,
@@ -182,7 +365,7 @@ impl World {
                     comps.point,
                     comps.eyev,
                     comps.normalv,
-                    shadowed,
+                    intensity,
                 );
         }
         let reflected = self.reflected_color(&comps, remaining);
@@ -210,7 +393,13 @@ impl World {
         }
     }
     pub fn is_shadowed(&self, point: Point, light: &Light) -> bool {
-        let v = light.position() - point;
+        self.is_shadowed_at(light.position(), point)
+    }
+    // Is `point` occluded from `light_position` by some object between them? The
+    // book's area-light version of `is_shadowed`, taking an explicit light point
+    // so each sample of an area light can be tested independently.
+    pub fn is_shadowed_at(&self, light_position: Point, point: Point) -> bool {
+        let v = light_position - point;
         let distance = v.magnitude();
         let direction = v.normalize();
 
@@ -219,11 +408,34 @@ impl World {
             direction,
         };
 
-        let intersections = self.intersect_world(&r);
-
-        match intersections.hit() {
+        match self.intersect_world(&r).hit() {
             None => false,
             Some(intersection) => intersection.t > EPSILON && intersection.t < distance,
+        }
+    }
+    // The fraction of `light` visible from `point`: 1.0 or 0.0 for a point light,
+    // and the share of unoccluded grid samples for an area light, which is what
+    // produces soft-edged shadows.
+    pub fn intensity_at(&self, point: Point, light: &Light) -> Number {
+        match light {
+            Light::Point(_) => {
+                if self.is_shadowed_at(light.position(), point) {
+                    0.0
+                } else {
+                    1.0
+                }
+            }
+            Light::Area(area) => {
+                let mut total = 0.0;
+                for v in 0..area.vsteps {
+                    for u in 0..area.usteps {
+                        if !self.is_shadowed_at(area.point_on_light(u, v), point) {
+                            total += 1.0;
+                        }
+                    }
+                }
+                total / area.samples as Number
+            }
         }
     }
     pub fn reflected_color(&self, comps: &Computations, remaining: usize) -> Color {
@@ -600,6 +812,177 @@ mod tests {
             ])
         );
     }
+    #[test]
+    fn the_area_light_intensity_function() {
+        let w = World::default();
+        let light = Light::area_light(
+            Point {
+                x: -0.5,
+                y: -0.5,
+                z: -5.0,
+            },
+            Vector {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            2,
+            Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            2,
+            Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+            },
+        );
+        let cases = [
+            (Point { x: 0.0, y: 0.0, z: 2.0 }, 0.0),
+            (Point { x: 1.0, y: -1.0, z: 2.0 }, 0.25),
+            (Point { x: 1.5, y: 0.0, z: 2.0 }, 0.5),
+            (Point { x: 1.25, y: 1.25, z: 3.0 }, 0.75),
+            (Point { x: 0.0, y: 0.0, z: -2.0 }, 1.0),
+        ];
+        for (point, expected) in cases {
+            assert_eq!(w.intensity_at(point, &light), expected, "point={point:?}");
+        }
+    }
+    #[test]
+    fn point_lights_evaluate_the_light_intensity_at_a_given_point() {
+        let w = World::default();
+        let cases = [
+            (Point { x: 0.0, y: 1.0001, z: 0.0 }, 1.0),
+            (Point { x: -1.0001, y: 0.0, z: 0.0 }, 1.0),
+            (Point { x: 0.0, y: 0.0, z: -1.0001 }, 1.0),
+            (Point { x: 0.0, y: 0.0, z: 1.0001 }, 0.0),
+            (Point { x: 0.0, y: 0.0, z: 0.0 }, 0.0),
+        ];
+        let light = w.lights[0].clone();
+        for (point, expected) in cases {
+            assert_eq!(w.intensity_at(point, &light), expected, "point={point:?}");
+        }
+    }
+    // Helper: the children ids of the group at `id`.
+    fn group_children(w: &World, id: usize) -> Vec<usize> {
+        match &w.objects[id] {
+            Shape::Group(g) => g.children.clone(),
+            _ => panic!("object {id} is not a group"),
+        }
+    }
+
+    #[test]
+    fn partitioning_a_groups_children() {
+        let mut w = World::new();
+        let g = w.add_object(Shape::group());
+        let mut s1 = Shape::sphere();
+        s1.set_transform(translation(-2.0, 0.0, 0.0));
+        let s1 = w.add_child(g, s1);
+        let mut s2 = Shape::sphere();
+        s2.set_transform(translation(2.0, 0.0, 0.0));
+        let s2 = w.add_child(g, s2);
+        let s3 = w.add_child(g, Shape::sphere());
+        let (left, right) = w.partition_children(g);
+        assert_eq!(group_children(&w, g), vec![s3]);
+        assert_eq!(left, vec![s1]);
+        assert_eq!(right, vec![s2]);
+    }
+
+    #[test]
+    fn creating_a_subgroup_from_a_list_of_children() {
+        let mut w = World::new();
+        let g = w.add_object(Shape::group());
+        let s1 = w.add_object(Shape::sphere());
+        let s2 = w.add_object(Shape::sphere());
+        w.make_subgroup(g, vec![s1, s2]);
+        let children = group_children(&w, g);
+        assert_eq!(children.len(), 1);
+        assert_eq!(group_children(&w, children[0]), vec![s1, s2]);
+    }
+
+    #[test]
+    fn subdividing_a_group_partitions_its_children() {
+        let mut w = World::new();
+        let g = w.add_object(Shape::group());
+        let mut s1 = Shape::sphere();
+        s1.set_transform(translation(-2.0, -2.0, 0.0));
+        let s1 = w.add_child(g, s1);
+        let mut s2 = Shape::sphere();
+        s2.set_transform(translation(-2.0, 2.0, 0.0));
+        let s2 = w.add_child(g, s2);
+        let mut s3 = Shape::sphere();
+        s3.set_transform(scaling(4.0, 4.0, 4.0));
+        let s3 = w.add_child(g, s3);
+        w.divide(g, 1);
+        let children = group_children(&w, g);
+        // The big sphere straddles the split and stays; the other two go into a
+        // sub-group that is itself split one-per-child.
+        assert_eq!(children[0], s3);
+        let subgroup = children[1];
+        let sub = group_children(&w, subgroup);
+        assert_eq!(sub.len(), 2);
+        assert_eq!(group_children(&w, sub[0]), vec![s1]);
+        assert_eq!(group_children(&w, sub[1]), vec![s2]);
+    }
+
+    #[test]
+    fn subdividing_a_group_with_too_few_children() {
+        let mut w = World::new();
+        let subgroup = w.add_object(Shape::group());
+        let mut s1 = Shape::sphere();
+        s1.set_transform(translation(-2.0, 0.0, 0.0));
+        let s1 = w.add_child(subgroup, s1);
+        let mut s2 = Shape::sphere();
+        s2.set_transform(translation(2.0, 1.0, 0.0));
+        let s2 = w.add_child(subgroup, s2);
+        let mut s3 = Shape::sphere();
+        s3.set_transform(translation(2.0, -1.0, 0.0));
+        let s3 = w.add_child(subgroup, s3);
+        // Hang the subgroup and a lone sphere under a parent group.
+        let g = w.add_object(Shape::group());
+        w.objects[subgroup].set_parent(Some(g));
+        if let Shape::Group(gg) = &mut w.objects[g] {
+            gg.children.push(subgroup);
+        }
+        let s4 = w.add_child(g, Shape::sphere());
+        w.divide(g, 3);
+        // g has 2 < 3 children, so it is left intact, but the subgroup (3) splits.
+        assert_eq!(group_children(&w, g), vec![subgroup, s4]);
+        let sub = group_children(&w, subgroup);
+        assert_eq!(group_children(&w, sub[0]), vec![s1]);
+        assert_eq!(group_children(&w, sub[1]), vec![s2, s3]);
+    }
+
+    #[test]
+    fn subdividing_a_csg_shapes_children() {
+        let mut w = World::new();
+        let csg = w.add_object(Shape::csg(crate::csg::CsgOperation::Difference));
+        let left = w.add_object(Shape::group());
+        let mut s1 = Shape::sphere();
+        s1.set_transform(translation(-1.5, 0.0, 0.0));
+        let s1 = w.add_child(left, s1);
+        let mut s2 = Shape::sphere();
+        s2.set_transform(translation(1.5, 0.0, 0.0));
+        let s2 = w.add_child(left, s2);
+        let right = w.add_object(Shape::group());
+        let mut s3 = Shape::sphere();
+        s3.set_transform(translation(0.0, 0.0, -1.5));
+        let s3 = w.add_child(right, s3);
+        let mut s4 = Shape::sphere();
+        s4.set_transform(translation(0.0, 0.0, 1.5));
+        let s4 = w.add_child(right, s4);
+        w.set_csg_children(csg, left, right);
+        w.divide(csg, 1);
+        let left_children = group_children(&w, left);
+        assert_eq!(group_children(&w, left_children[0]), vec![s1]);
+        assert_eq!(group_children(&w, left_children[1]), vec![s2]);
+        let right_children = group_children(&w, right);
+        assert_eq!(group_children(&w, right_children[0]), vec![s3]);
+        assert_eq!(group_children(&w, right_children[1]), vec![s4]);
+    }
+
     #[test]
     fn there_is_no_shadow_when_nothing_is_collinear_with_point_and_light() {
         let w = World::default();

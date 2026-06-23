@@ -1,6 +1,8 @@
 use crate::{
-    bounds::BoundingBox, cones::Cone, cubes::Cube, cylinders::Cylinder, groups::*, intersections::*,
-    materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere,
+    bounds::BoundingBox, cones::Cone,
+    csg::{Csg, CsgOperation},
+    cubes::Cube, cylinders::Cylinder, groups::*,
+    intersections::*, materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere,
     triangles::{SmoothTriangle, Triangle},
     tuples::*,
 };
@@ -18,6 +20,7 @@ macro_rules! shape_match {
             Shape::Group($binding) => $body,
             Shape::Triangle($binding) => $body,
             Shape::SmoothTriangle($binding) => $body,
+            Shape::Csg($binding) => $body,
         }
     };
 }
@@ -64,6 +67,7 @@ pub enum Shape {
     Group(Group),
     Triangle(Triangle),
     SmoothTriangle(SmoothTriangle),
+    Csg(Csg),
 }
 impl Shape {
     fn test_shape() -> Shape {
@@ -94,6 +98,10 @@ impl Shape {
     }
     pub fn group() -> Shape {
         Shape::Group(Group::new())
+    }
+    // A CSG node with its children unset; attach them with `World::set_csg_children`.
+    pub fn csg(operation: CsgOperation) -> Shape {
+        Shape::Csg(Csg::new(operation))
     }
     pub fn triangle(p1: Point, p2: Point, p3: Point) -> Shape {
         Shape::Triangle(Triangle::new(p1, p2, p3))
@@ -172,7 +180,9 @@ impl Shape {
                     },
                 )
             }
-            Shape::Group(_) => BoundingBox::empty(),
+            // Like a group, a CSG node's real box (the union of its children) is
+            // cached on the node by `World::compute_bounds`.
+            Shape::Group(_) | Shape::Csg(_) => BoundingBox::empty(),
             // A triangle's box is just the corner-wise min and max of its three
             // vertices; a smooth triangle shares the same three corners.
             Shape::Triangle(t) => {

@@ -15,6 +15,14 @@ pub struct Camera<const HSIZE: usize, const VSIZE: usize> {
     pixel_size: Number,
     half_width: Number,
     half_height: Number,
+    // Focal blur (the "Focal Blur" bonus chapter). `aperture` is the lens radius:
+    // 0.0 is a pinhole (perfectly sharp, the default). With a positive aperture,
+    // each pixel averages `samples` rays whose origins are jittered across the
+    // lens and which all aim at the same point on the focal plane `focal_distance`
+    // away, so only objects at that distance stay sharp.
+    aperture: Number,
+    focal_distance: Number,
+    samples: usize,
 }
 const MAX_REFLECTION_DEPTH: usize = 5;
 impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
@@ -37,7 +45,17 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             pixel_size,
             half_width: half_width,
             half_height: half_height,
+            aperture: 0.0,
+            focal_distance: 1.0,
+            samples: 1,
         }
+    }
+    // Enable depth of field: `aperture` is the lens radius (world units), objects
+    // at `focal_distance` stay sharp, and `samples` rays per pixel are averaged.
+    pub fn set_focal_blur(&mut self, aperture: Number, focal_distance: Number, samples: usize) {
+        self.aperture = aperture;
+        self.focal_distance = focal_distance.max(EPSILON);
+        self.samples = samples.max(1);
     }
     pub fn ray_for_pixel(&self, px: usize, py: usize) -> Ray {
         let xoffset = (px as Number + 0.5) * self.pixel_size;
@@ -60,6 +78,56 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         let direction = (pixel - origin.clone()).normalize();
         Ray { origin, direction }
     }
+    // A ray through pixel (px, py) originating at lens offset (lens_u, lens_v),
+    // each in [-0.5, 0.5]. The ray aims at the pixel's point on the focal plane,
+    // so all lens samples for a pixel converge there. With aperture 0 the lens
+    // offset has no effect and this reduces to `ray_for_pixel`.
+    fn ray_for_pixel_lens(&self, px: usize, py: usize, lens_u: Number, lens_v: Number) -> Ray {
+        let xoffset = (px as Number + 0.5) * self.pixel_size;
+        let yoffset = (py as Number + 0.5) * self.pixel_size;
+        let world_x = self.half_width - xoffset;
+        let world_y = self.half_height - yoffset;
+        // The point on the focal plane along the central ray through this pixel.
+        let mut focus = Point {
+            x: world_x * self.focal_distance,
+            y: world_y * self.focal_distance,
+            z: -self.focal_distance,
+        };
+        // The ray leaves a jittered point on the lens (z = 0 in camera space).
+        let mut origin = Point {
+            x: lens_u * self.aperture,
+            y: lens_v * self.aperture,
+            z: 0.0,
+        };
+        if let Some(inverse_transform) = self.inverse_transform {
+            focus = inverse_transform * focus;
+            origin = inverse_transform * origin;
+        }
+        let direction = (focus - origin).normalize();
+        Ray { origin, direction }
+    }
+    // The averaged color for one pixel. A pinhole camera (aperture 0, 1 sample)
+    // casts the single central ray; with focal blur enabled it averages `samples`
+    // lens-jittered rays. The jitter is a deterministic hash of (px, py, sample)
+    // so it needs no shared RNG state and stays reproducible under the parallel
+    // renderer.
+    fn color_for_pixel(&self, world: &World, px: usize, py: usize, depth: usize) -> Pixel {
+        if self.samples <= 1 && self.aperture == 0.0 {
+            let ray = self.ray_for_pixel(px, py);
+            return Pixel::clamp(0, 255, world.color_at(&ray, depth));
+        }
+        let mut sum = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        };
+        for s in 0..self.samples {
+            let (lens_u, lens_v) = lens_jitter(px, py, s);
+            let ray = self.ray_for_pixel_lens(px, py, lens_u, lens_v);
+            sum = sum + world.color_at(&ray, depth);
+        }
+        Pixel::clamp(0, 255, sum * (1.0 / self.samples as Number))
+    }
     pub fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
         self.transform = transform;
         self.inverse_transform = inverse(&transform);
@@ -68,9 +136,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
         for y in 0..VSIZE {
             for x in 0..HSIZE {
-                let ray = self.ray_for_pixel(x, y);
-                let color = world.color_at(&ray, MAX_REFLECTION_DEPTH);
-                image.write_pixel(color, y, x);
+                image.set(self.color_for_pixel(&world, x, y, MAX_REFLECTION_DEPTH), y, x);
             }
         }
         image
@@ -83,9 +149,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             .enumerate()
             .for_each(|(y, row)| {
                 for x in 0..HSIZE {
-                    let ray = self.ray_for_pixel(x, y);
-                    let color = world.color_at(&ray, MAX_REFLECTION_DEPTH);
-                    row[x] = Pixel::clamp(0, 255, color);
+                    row[x] = self.color_for_pixel(&world, x, y, MAX_REFLECTION_DEPTH);
                 }
             });
         image
@@ -101,13 +165,34 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             .enumerate()
             .for_each(|(y, row)| {
                 for x in 0..HSIZE {
-                    let ray = self.ray_for_pixel(x, y);
-                    let color = world.color_at(&ray, depth);
-                    row[x] = Pixel::clamp(0, 255, color);
+                    row[x] = self.color_for_pixel(world, x, y, depth);
                 }
             });
         image
     }
+}
+
+// A deterministic jitter for lens sampling: hash (px, py, sample) into two values
+// in [-0.5, 0.5]. Being a pure function of its inputs, it gives every pixel a
+// different but reproducible spread of lens offsets with no shared RNG, which the
+// parallel renderer needs.
+fn lens_jitter(px: usize, py: usize, sample: usize) -> (Number, Number) {
+    fn hash(mut h: u64) -> u64 {
+        h ^= h >> 33;
+        h = h.wrapping_mul(0xff51afd7ed558ccd);
+        h ^= h >> 33;
+        h = h.wrapping_mul(0xc4ceb9fe1a85ec53);
+        h ^= h >> 33;
+        h
+    }
+    let base = (px as u64).wrapping_mul(73856093)
+        ^ (py as u64).wrapping_mul(19349663)
+        ^ (sample as u64).wrapping_mul(83492791);
+    let a = hash(base);
+    let b = hash(base ^ 0x9e3779b97f4a7c15);
+    // Top 53 bits -> [0, 1), then shift to [-0.5, 0.5).
+    let to_unit = |x: u64| (x >> 11) as Number / ((1u64 << 53) as Number);
+    (to_unit(a) - 0.5, to_unit(b) - 0.5)
 }
 
 #[cfg(test)]

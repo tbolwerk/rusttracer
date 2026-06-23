@@ -75,18 +75,109 @@ impl ObjParser {
     // `material` is applied to every triangle (OBJ files here carry no materials).
     // Returns the root group's arena id; call `world.compute_bounds()` afterwards.
     pub fn to_world_bvh(&self, world: &mut World, leaf_size: usize, material: Material) -> usize {
-        let mut triangles: Vec<Shape> = self
-            .groups
+        build_from_triangles(world, self.all_triangles(), leaf_size, material)
+    }
+
+    // Like `to_world_bvh`, but first gives the model smooth (Phong) shading by
+    // synthesizing a normal at every vertex. OBJ files like the teapot ship with
+    // faces only, so they render faceted; `smoothed` averages the face normals
+    // meeting at each vertex and rebuilds every flat triangle as a smooth one,
+    // letting the smooth-triangle path interpolate across each face. Averaging
+    // rounds off genuinely sharp edges, but for an organic model like the teapot
+    // the result reads as the intended curved surface.
+    pub fn to_world_bvh_smooth(
+        &self,
+        world: &mut World,
+        leaf_size: usize,
+        material: Material,
+    ) -> usize {
+        build_from_triangles(world, smoothed(self.all_triangles()), leaf_size, material)
+    }
+
+    // Every triangle across every OBJ group, flattened into one list.
+    fn all_triangles(&self) -> Vec<Shape> {
+        self.groups
             .iter()
             .flat_map(|g| g.triangles.iter().cloned())
-            .collect();
-        for triangle in &mut triangles {
-            triangle.set_material(material.clone());
-        }
-        let root = world.add_object(Shape::group());
-        build_bvh(world, root, triangles, leaf_size.max(1));
-        root
+            .collect()
     }
+}
+
+// Paint each triangle with `material`, then pack the lot into a BVH under a fresh
+// root group, returning its arena id.
+fn build_from_triangles(
+    world: &mut World,
+    mut triangles: Vec<Shape>,
+    leaf_size: usize,
+    material: Material,
+) -> usize {
+    for triangle in &mut triangles {
+        triangle.set_material(material.clone());
+    }
+    let root = world.add_object(Shape::group());
+    build_bvh(world, root, triangles, leaf_size.max(1));
+    root
+}
+
+// Convert flat triangles to smooth ones by giving each vertex a normal equal to
+// the (area-weighted) average of the faces meeting there. Vertices are matched
+// by position: a shared OBJ vertex parses to identical coordinates, so quantizing
+// to a fine grid groups exactly the triangles that touch. A vertex whose face
+// normals cancel falls back to that triangle's flat normal. Non-triangle shapes
+// pass through unchanged.
+fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
+    use std::collections::HashMap;
+    // Quantize a position into an integer key. 1e4 keeps ~4 decimals, far finer
+    // than the spacing between distinct vertices but coarse enough to ignore
+    // float noise.
+    fn key(p: Point) -> (i64, i64, i64) {
+        let q = |v: Number| (v * 10_000.0).round() as i64;
+        (q(p.x), q(p.y), q(p.z))
+    }
+
+    // Accumulate area-weighted face normals at each vertex. `e2.cross(e1)` matches
+    // the orientation the flat triangle uses for its own normal, and its length is
+    // proportional to the face area, so larger faces pull the average more.
+    let mut accum: HashMap<(i64, i64, i64), Vector> = HashMap::new();
+    for shape in &triangles {
+        if let Shape::Triangle(t) = shape {
+            let face = t.e2.cross(t.e1);
+            for p in [t.p1, t.p2, t.p3] {
+                let entry = accum.entry(key(p)).or_insert(Vector {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                });
+                *entry = *entry + face;
+            }
+        }
+    }
+
+    triangles
+        .into_iter()
+        .map(|shape| match shape {
+            Shape::Triangle(t) => {
+                let normal_at = |p: Point, flat: Vector| {
+                    let summed = accum.get(&key(p)).copied().unwrap_or(flat);
+                    if summed.magnitude() < EPSILON {
+                        flat
+                    } else {
+                        summed.normalize()
+                    }
+                };
+                let flat = t.e2.cross(t.e1);
+                Shape::smooth_triangle(
+                    t.p1,
+                    t.p2,
+                    t.p3,
+                    normal_at(t.p1, flat),
+                    normal_at(t.p2, flat),
+                    normal_at(t.p3, flat),
+                )
+            }
+            other => other,
+        })
+        .collect()
 }
 
 // The centroid of a triangle shape, used to decide which side of a split it
