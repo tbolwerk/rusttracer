@@ -30,10 +30,10 @@ impl Intersects for Plane {
         if ray.direction.y().abs() < EPSILON {
             return Intersections::new(vec![]);
         }
-        Intersections::new(vec![Intersection {
-            t: -ray.origin.y / ray.direction.y,
-            object_id: object_id,
-        }])
+        Intersections::new(vec![Intersection::new(
+            -ray.origin.y / ray.direction.y,
+            object_id,
+        )])
     }
     fn local_normal_at(&self, _: &Point) -> Vector {
         Vector {

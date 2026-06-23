@@ -11,6 +11,7 @@ use groups::*;
 mod cones;
 use cones::*;
 mod cylinders;
+mod obj_parser;
 use cylinders::*;
 mod cubes;
 mod patterns;
@@ -31,6 +32,7 @@ use lights::*;
 mod intersections;
 mod rays;
 mod spheres;
+mod triangles;
 use rays::*;
 mod transformations;
 use transformations::*;
@@ -46,6 +48,11 @@ fn main() -> Result<(), ()> {
     // through, instead of rendering the chapters to files.
     if std::env::args().any(|a| a == "fly") {
         flythrough();
+        return Ok(());
+    }
+    // `cargo run --release -- teapot` renders a single teapot.obj still.
+    if std::env::args().any(|a| a == "teapot") {
+        teapot();
         return Ok(());
     }
     let _ = chapter1();
@@ -129,6 +136,34 @@ const LIVE_W: usize = 320;
 const LIVE_H: usize = 180;
 const LIVE_DEPTH: usize = 3;
 
+// Frame cache tuning for the live viewer. A rendered frame is keyed by the
+// camera pose (position + yaw + pitch) and the scene it belongs to, so flying
+// back through a viewpoint already seen returns the cached frame instead of
+// re-tracing every pixel. The pose is quantized onto a grid to make revisits
+// hit: POSE_STEP is the position grid (world units) and ANGLE_STEP the look
+// grid (radians). Finer grids reduce the visual "snap" of a reused frame but
+// reuse less often. A standing-still pose is pixel-identical frame to frame and
+// hits regardless of the grid, so idle frames are always lossless reuse.
+const POSE_STEP: Number = 0.1; // ~10 cm position buckets
+const ANGLE_STEP: Number = 0.01; // ~0.6 degree look buckets
+const FRAME_CACHE_CAP: usize = 128; // bounded: ~128 * 320*180 * 4 bytes ≈ 30 MB
+
+// A cache key for a rendered live frame: the scene index plus the camera pose
+// snapped to the grids above. Quantizing to integers makes the key hashable and
+// lets nearby revisits share a cached frame.
+type FrameKey = (usize, i64, i64, i64, i64, i64);
+fn frame_key(scene: usize, pos: Point, yaw: Number, pitch: Number) -> FrameKey {
+    let snap = |v: Number, step: Number| (v / step).round() as i64;
+    (
+        scene,
+        snap(pos.x, POSE_STEP),
+        snap(pos.y, POSE_STEP),
+        snap(pos.z, POSE_STEP),
+        snap(yaw, ANGLE_STEP),
+        snap(pitch, ANGLE_STEP),
+    )
+}
+
 // A selectable scene: a name, a builder, and a camera pose to start from.
 struct Scene {
     name: &'static str,
@@ -144,6 +179,7 @@ struct Scene {
 // 1-4 switch scenes; closing the window or pressing Esc exits.
 fn flythrough() {
     use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+    use std::collections::{HashMap, VecDeque};
 
     const MOVE: Number = 0.35; // world units per frame while a move key is held
     const LOOK: Number = 0.04; // radians per frame while a look key is held
@@ -153,36 +189,63 @@ fn flythrough() {
         Scene {
             name: "marbles",
             build: build_marbles_world,
-            pos: Point { x: 0.0, y: 4.0, z: -11.0 },
+            pos: Point {
+                x: 0.0,
+                y: 4.0,
+                z: -11.0,
+            },
             yaw: 0.0,
             pitch: -0.25,
         },
         Scene {
             name: "capitol",
             build: build_capitol_world,
-            pos: Point { x: 0.0, y: 5.0, z: -18.0 },
+            pos: Point {
+                x: 0.0,
+                y: 5.0,
+                z: -18.0,
+            },
             yaw: 0.0,
             pitch: -0.08,
         },
         Scene {
             name: "hexagon",
             build: build_hexagon_world,
-            pos: Point { x: 0.0, y: 2.5, z: -5.0 },
+            pos: Point {
+                x: 0.0,
+                y: 2.5,
+                z: -5.0,
+            },
             yaw: 0.0,
             pitch: -0.25,
         },
         Scene {
             name: "glass",
             build: build_glass_world,
-            pos: Point { x: 0.0, y: 1.5, z: -5.5 },
+            pos: Point {
+                x: 0.0,
+                y: 1.5,
+                z: -5.5,
+            },
             yaw: 0.0,
             pitch: -0.08,
+        },
+        Scene {
+            name: "teapot",
+            build: build_teapot_world,
+            pos: Point {
+                x: 0.0,
+                y: 4.0,
+                z: -10.0,
+            },
+            yaw: 0.0,
+            pitch: -0.18,
         },
     ];
 
     let mut camera: Camera<LIVE_W, LIVE_H> = Camera::new(PI / 3.0);
     let title = |name: &str| {
-        format!("rusttracer [{name}] - 1-4 scene, N next, WASD/RF move, arrows look, Esc quit")
+        format!("rusttracer [{name}] - 1-5 scene, N next, WASD/RF move, arrows look, Esc quit")
     };
     let mut window = Window::new(
         &title(scenes[0].name),
@@ -201,10 +264,19 @@ fn flythrough() {
     let mut yaw = scenes[current].yaw;
     let mut pitch = scenes[current].pitch;
 
+    // Pose-keyed cache of rendered frames (as the ARGB buffers the window wants),
+    // plus an insertion-order queue so the cache can evict its oldest frame once
+    // it reaches FRAME_CACHE_CAP. `last_key` lets a standing-still frame skip the
+    // hash lookup entirely and reuse the previous buffer with zero error.
+    let mut cache: HashMap<FrameKey, Vec<u32>> = HashMap::new();
+    let mut order: VecDeque<FrameKey> = VecDeque::new();
+    let mut last_key: Option<FrameKey> = None;
+    let mut last_buffer: Vec<u32> = Vec::new();
+
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Scene switching: digits 1-4 pick a scene, N cycles to the next. Each
         // switch rebuilds the world and resets the camera to that scene's pose.
-        let digit_keys = [Key::Key1, Key::Key2, Key::Key3, Key::Key4];
+        let digit_keys = [Key::Key1, Key::Key2, Key::Key3, Key::Key4, Key::Key5];
         let mut next = None;
         for (i, key) in digit_keys.iter().enumerate() {
             if i < scenes.len() && window.is_key_pressed(*key, KeyRepeat::No) {
@@ -271,9 +343,27 @@ fn flythrough() {
                 z: 0.0,
             },
         ));
-        let canvas = camera.render_live(&world, LIVE_DEPTH);
+        // Reuse a cached frame when this pose+scene has been rendered before.
+        // Standing still hits `last_key` and skips even the hash lookup; a
+        // revisited viewpoint hits the cache; only a genuinely new pose renders.
+        let key = frame_key(current, pos, yaw, pitch);
+        if last_key != Some(key) {
+            if let Some(buffer) = cache.get(&key) {
+                last_buffer = buffer.clone();
+            } else {
+                last_buffer = camera.render_live(&world, LIVE_DEPTH).to_argb();
+                cache.insert(key, last_buffer.clone());
+                order.push_back(key);
+                if order.len() > FRAME_CACHE_CAP {
+                    if let Some(evicted) = order.pop_front() {
+                        cache.remove(&evicted);
+                    }
+                }
+            }
+            last_key = Some(key);
+        }
         if window
-            .update_with_buffer(&canvas.to_argb(), LIVE_W, LIVE_H)
+            .update_with_buffer(&last_buffer, LIVE_W, LIVE_H)
             .is_err()
         {
             break; // window closed
@@ -288,6 +378,127 @@ fn forward(yaw: Number, pitch: Number) -> Vector {
         x: pitch.cos() * yaw.sin(),
         y: pitch.sin(),
         z: pitch.cos() * yaw.cos(),
+    }
+}
+
+// Load the Utah teapot (teapot.obj, ~6300 flat triangles) onto a reflective
+// checkered floor under a blue ambient sky. The model is read from the working
+// directory and packed into a bounding volume hierarchy so it is fast enough to
+// fly around; it already sits on the y=0 plane in its own coordinates, so it
+// rests on the floor without any extra transform.
+fn build_teapot_world() -> World {
+    let mut world = World::new();
+    world.lights = vec![Light::Point(PointLight::new(
+        Point {
+            x: -8.0,
+            y: 12.0,
+            z: -8.0,
+        },
+        Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
+    ))];
+
+    // A large ambient-only sphere acts as a soft blue sky for fill and reflections.
+    let mut sky = Shape::sphere();
+    let mut sky_material = Material::default();
+    sky_material.set_color(Color {
+        r: 0.55,
+        g: 0.7,
+        b: 0.95,
+    });
+    sky_material.set_ambient(0.7);
+    sky_material.set_diffuse(0.0);
+    sky_material.set_specular(0.0);
+    sky.set_material(sky_material);
+    sky.set_transform(scaling(1000.0, 1000.0, 1000.0));
+    world.add_object(sky);
+
+    // A reflective checkered floor for the teapot to sit on and reflect into.
+    let mut floor = Shape::plane();
+    let mut floor_material = Material::default();
+    let mut floor_pattern = Pattern::checker_pattern(
+        Color {
+            r: 0.18,
+            g: 0.18,
+            b: 0.2,
+        },
+        Color {
+            r: 0.32,
+            g: 0.32,
+            b: 0.34,
+        },
+    );
+    floor_pattern.set_transform(scaling(0.75, 0.75, 0.75));
+    floor_material.set_pattern(floor_pattern);
+    floor_material.set_specular(0.0);
+    floor_material.set_reflective(0.3);
+    floor.set_material(floor_material);
+    world.add_object(floor);
+
+    // Glossy blue ceramic for the teapot itself; OBJ files carry no material, so
+    // the loader paints every triangle with this one.
+    let mut teapot_material = Material::default();
+    teapot_material.set_color(Color {
+        r: 0.25,
+        g: 0.45,
+        b: 0.85,
+    });
+    teapot_material.set_ambient(0.1);
+    teapot_material.set_diffuse(0.7);
+    teapot_material.set_specular(0.5);
+    teapot_material.set_shininess(180.0);
+    teapot_material.set_reflective(0.12);
+
+    let text = std::fs::read_to_string("teapot.obj")
+        .expect("teapot.obj not found in the working directory");
+    let parser = obj_parser::parse_obj(&text);
+    let _teapot = parser.to_world_bvh(&mut world, 16, teapot_material);
+
+    // Build every group's bounding box so the BVH actually culls.
+    world.compute_bounds();
+    world
+}
+
+// `cargo run --release -- teapot` renders a single still of the teapot scene to
+// teapot.ppm, separate from the interactive viewer.
+fn teapot() {
+    const W: usize = 600;
+    const H: usize = 400;
+    println!("teapot: loading teapot.obj and building the BVH...");
+    let world = build_teapot_world();
+    println!("teapot: {} arena objects", world.objects.len());
+
+    let mut camera: Camera<W, H> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point {
+            x: 6.0,
+            y: 5.0,
+            z: -8.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.2,
+            z: 0.0,
+        },
+        Vector {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ));
+
+    println!("teapot: rendering {W}x{H}...");
+    let start = Instant::now();
+    let canvas = camera.render_par(world);
+    println!("teapot: rendered in {:.2?}", start.elapsed());
+
+    let filename = "teapot.ppm";
+    match canvas.write_ppm(filename, PpmFormat::P6) {
+        Err(_) => println!("Something went wrong!"),
+        Ok(()) => println!("Succesfully written {filename}!"),
     }
 }
 

@@ -1,6 +1,8 @@
 use crate::{
     bounds::BoundingBox, cones::Cone, cubes::Cube, cylinders::Cylinder, groups::*, intersections::*,
-    materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere, tuples::*,
+    materials::Material, matrices::*, planes::Plane, rays::*, spheres::Sphere,
+    triangles::{SmoothTriangle, Triangle},
+    tuples::*,
 };
 use std::sync::{Arc, Mutex};
 
@@ -14,6 +16,8 @@ macro_rules! shape_match {
             Shape::Cylinder($binding) => $body,
             Shape::Cone($binding) => $body,
             Shape::Group($binding) => $body,
+            Shape::Triangle($binding) => $body,
+            Shape::SmoothTriangle($binding) => $body,
         }
     };
 }
@@ -58,6 +62,8 @@ pub enum Shape {
     Cylinder(Cylinder),
     Cone(Cone),
     Group(Group),
+    Triangle(Triangle),
+    SmoothTriangle(SmoothTriangle),
 }
 impl Shape {
     fn test_shape() -> Shape {
@@ -89,6 +95,19 @@ impl Shape {
     pub fn group() -> Shape {
         Shape::Group(Group::new())
     }
+    pub fn triangle(p1: Point, p2: Point, p3: Point) -> Shape {
+        Shape::Triangle(Triangle::new(p1, p2, p3))
+    }
+    pub fn smooth_triangle(
+        p1: Point,
+        p2: Point,
+        p3: Point,
+        n1: Vector,
+        n2: Vector,
+        n3: Vector,
+    ) -> Shape {
+        Shape::SmoothTriangle(SmoothTriangle::new(p1, p2, p3, n1, n2, n3))
+    }
     // The group this shape belongs to (an index into `World::objects`), or
     // `None` if it is a root. Mirrors the book's `parent` attribute.
     pub fn parent(&self) -> Option<usize> {
@@ -101,6 +120,11 @@ impl Shape {
     // (accounting for any enclosing groups) is done by `World::normal_at`.
     pub fn local_normal_at(&self, point: &Point) -> Vector {
         shape_match!(self, s => s.local_normal_at(point))
+    }
+    // u/v-aware object-space normal. Forwarded by `World::normal_at_uv`; only a
+    // smooth triangle consults u/v, the rest ignore them.
+    pub fn local_normal_at_uv(&self, point: &Point, u: Number, v: Number) -> Vector {
+        shape_match!(self, s => s.local_normal_at_uv(point, u, v))
     }
     // The shape's axis-aligned bounding box in its own object space, before its
     // transform is applied. `World::compute_bounds` lifts these into group
@@ -149,6 +173,22 @@ impl Shape {
                 )
             }
             Shape::Group(_) => BoundingBox::empty(),
+            // A triangle's box is just the corner-wise min and max of its three
+            // vertices; a smooth triangle shares the same three corners.
+            Shape::Triangle(t) => {
+                let mut b = BoundingBox::empty();
+                b.add_point(t.p1);
+                b.add_point(t.p2);
+                b.add_point(t.p3);
+                b
+            }
+            Shape::SmoothTriangle(t) => {
+                let mut b = BoundingBox::empty();
+                b.add_point(t.p1);
+                b.add_point(t.p2);
+                b.add_point(t.p3);
+                b
+            }
             // Sphere, Cube and the test shape all fit the unit cube.
             _ => BoundingBox::new(
                 Point {
@@ -266,6 +306,12 @@ pub trait Intersects {
             y: point.y(),
             z: point.z(),
         }
+    }
+    // Normal at `point` given the hit's barycentric coordinates. Only a smooth
+    // triangle uses u/v; every other shape's normal is independent of them, so
+    // the default just forwards to `local_normal_at`.
+    fn local_normal_at_uv(&self, point: &Point, _u: Number, _v: Number) -> Vector {
+        self.local_normal_at(point)
     }
 }
 impl HasTransform for Shape {

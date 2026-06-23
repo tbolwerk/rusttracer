@@ -134,8 +134,14 @@ impl World {
     // Book's normal_at: the world-space normal of the leaf `id` at `world_point`,
     // accounting for every enclosing group's transform.
     pub fn normal_at(&self, id: usize, world_point: Point) -> Vector {
+        self.normal_at_uv(id, world_point, 0.0, 0.0)
+    }
+    // As `normal_at`, but carrying the hit's barycentric u/v so a smooth triangle
+    // can interpolate its normal from its three vertex normals. All other shapes
+    // ignore u/v, so `normal_at` just calls this with zeros.
+    pub fn normal_at_uv(&self, id: usize, world_point: Point, u: Number, v: Number) -> Vector {
         let local_point = self.world_to_object(id, world_point);
-        let local_normal = self.objects[id].local_normal_at(&local_point);
+        let local_normal = self.objects[id].local_normal_at_uv(&local_point, u, v);
         self.normal_to_world(id, local_normal)
     }
     // Append a top-level object and return its arena id.
@@ -666,10 +672,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let i = Intersection {
-            t: 4.0,
-            object_id: 1,
-        };
+        let i = Intersection::new(4.0, 1);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
         w.objects.extend(vec![s1, s2.clone()]);
         let c = w.shade_hit(comps, 0);
@@ -699,10 +702,7 @@ mod tests {
         let mut shape = Shape::sphere();
         const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 1.0);
         shape.set_transform(TRANSFORM);
-        let i = Intersection {
-            t: 5.0,
-            object_id: 0,
-        };
+        let i = Intersection::new(5.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));

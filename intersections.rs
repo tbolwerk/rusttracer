@@ -9,6 +9,11 @@ use crate::worlds::World;
 pub struct Intersection {
     pub t: Number,
     pub object_id: usize,
+    // Barycentric coordinates of the hit on a (smooth) triangle. They are unused
+    // by every other shape and left at 0.0; a smooth triangle fills them in via
+    // `Intersection::with_uv` so its normal can be interpolated across the face.
+    pub u: Number,
+    pub v: Number,
 }
 pub struct Computations {
     pub t: Number,
@@ -80,8 +85,10 @@ impl Intersection {
         }
         let point = ray.position(self.t);
         // Resolve the normal through the world so any enclosing group
-        // transforms are applied (world_to_object / normal_to_world).
-        let mut normalv = world.normal_at(self.object_id, point);
+        // transforms are applied (world_to_object / normal_to_world). The hit's
+        // u/v are passed along so a smooth triangle can interpolate its normal;
+        // every other shape ignores them.
+        let mut normalv = world.normal_at_uv(self.object_id, point, self.u, self.v);
         let eyev = -ray.direction;
         let inside = normalv.dot(eyev) < 0.0;
         if inside {
@@ -177,7 +184,17 @@ impl Index<usize> for Intersections {
 }
 impl Intersection {
     pub const fn new(t: Number, object_id: usize) -> Self {
-        Self { t, object_id }
+        Self {
+            t,
+            object_id,
+            u: 0.0,
+            v: 0.0,
+        }
+    }
+    // Used by smooth triangles, which record where on the face the ray landed so
+    // the surface normal can be interpolated from the three vertex normals.
+    pub const fn with_uv(t: Number, object_id: usize, u: Number, v: Number) -> Self {
+        Self { t, object_id, u, v }
     }
 }
 #[cfg(test)]
@@ -194,6 +211,13 @@ mod tests {
         let i = Intersection::new(3.5, 0);
         assert_eq!(i.t, 3.5);
         assert_eq!(i.object_id, 0);
+    }
+    #[test]
+    fn an_intersection_can_encapsulate_u_and_v() {
+        // A smooth-triangle intersection carries where on the face it landed.
+        let i = Intersection::with_uv(3.5, 0, 0.2, 0.4);
+        assert_eq!(i.u, 0.2);
+        assert_eq!(i.v, 0.4);
     }
     #[test]
     fn aggregating_intersections() {
