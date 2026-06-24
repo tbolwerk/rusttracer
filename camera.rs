@@ -200,6 +200,13 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
                 *px = (p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32;
             });
     }
+    // The ARGB color of a single pixel. The viewport's interlaced refinement traces
+    // a sparse, growing set of pixels and uses this to color each one through the
+    // camera's normal pipeline.
+    pub fn pixel_argb(&self, world: &World, px: usize, py: usize, depth: usize) -> u32 {
+        let p = self.color_for_pixel(world, px, py, depth);
+        (p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32
+    }
 }
 
 // A deterministic jitter for lens sampling: hash (px, py, sample) into two values

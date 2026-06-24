@@ -19,6 +19,7 @@ use crate::tuples::*;
 use crate::worlds::World;
 
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
+use rayon::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
@@ -26,21 +27,14 @@ use std::time::Instant;
 pub const DISP_W: usize = 1920;
 pub const DISP_H: usize = 1080;
 
-// Dynamic resolution while moving (finest first). After each moving frame the
-// viewport nudges toward the level that keeps the frame within FRAME_BUDGET_MS,
-// so light scenes stay near full resolution and heavy ones drop to a coarse
-// (blurrier) level rather than stuttering. Each entry has a matching camera.
-const MOVE_LADDER: [(usize, usize); 7] = [
-    (960, 540),
-    (480, 270),
-    (320, 180),
-    (240, 135),
-    (160, 90),
-    (96, 54),
-    (64, 36),
-];
+// Dynamic resolution, expressed as a "block size": one ray is traced per
+// block x block square and the result fills the block. A larger block is coarser
+// and faster. MAX_BLOCK is the coarsest (used for the first refinement pass and as
+// the slowest-scene fallback while moving); blocks are always powers of two so the
+// refinement's sample grids nest, letting each pixel be traced exactly once.
+const MAX_BLOCK: usize = 32;
 pub const MOVE_DEPTH: usize = 1; // reflection depth while moving
-const FRAME_BUDGET_MS: f64 = 33.0; // ~30 fps target, while moving and per refine stripe
+const FRAME_BUDGET_MS: f64 = 33.0; // ~30 fps target, while moving and per refine chunk
 pub const STILL_DEPTH: usize = 4; // full-frame reflection depth once stopped
 
 // Pose-keyed frame cache: a full-resolution frame is keyed by scene + quantized
@@ -116,6 +110,66 @@ fn upscale_bilinear(src: &[u32], sw: usize, sh: usize, dst: &mut [u32], dw: usiz
     }
 }
 
+// Paint the block x block square whose top-left is (x, y) with one color, clipped
+// to the buffer. Cheap memory writes; the ray tracing is what's parallelized.
+fn fill_block(dst: &mut [u32], x: usize, y: usize, block: usize, w: usize, h: usize, color: u32) {
+    let x1 = (x + block).min(w);
+    let y1 = (y + block).min(h);
+    for yy in y..y1 {
+        let row = yy * w;
+        for xx in x..x1 {
+            dst[row + xx] = color;
+        }
+    }
+}
+
+// The sample points to trace for one refinement level, ordered center-outward.
+//
+// A pixel is a "rep" at this `block` if it lies on the block grid (x % block == 0,
+// y % block == 0). It is *new* at this level if it was not already a rep at the
+// previous (coarser) level `prev` — so across the levels MAX_BLOCK, MAX_BLOCK/2,
+// ... 1 every pixel is traced exactly once (interlaced / mip refinement). `prev`
+// is None for the coarsest level, where every rep is new.
+//
+// Reps are emitted in square (Chebyshev) rings growing from the screen center, so
+// the image resolves center-outward in both axes. No sort: the ring walk is O(reps).
+fn center_out_reps(block: usize, prev: Option<usize>, w: usize, h: usize) -> Vec<(u32, u32)> {
+    let is_new = |x: usize, y: usize| match prev {
+        None => true,
+        Some(p) => !(x % p == 0 && y % p == 0),
+    };
+    // The rep nearest the screen center, snapped to the block grid.
+    let cx = (w / 2 / block * block) as i64;
+    let cy = (h / 2 / block * block) as i64;
+    let step = block as i64;
+    let (w, h) = (w as i64, h as i64);
+    let mut out = Vec::new();
+    let mut emit = |x: i64, y: i64, out: &mut Vec<(u32, u32)>| {
+        if x >= 0 && x < w && y >= 0 && y < h && is_new(x as usize, y as usize) {
+            out.push((x as u32, y as u32));
+        }
+    };
+    let max_r = (w.max(h) / step) + 1;
+    for r in 0..=max_r {
+        if r == 0 {
+            emit(cx, cy, &mut out);
+            continue;
+        }
+        let (lo, hi) = (-r, r);
+        // Top and bottom edges of the ring (full width).
+        for i in lo..=hi {
+            emit(cx + i * step, cy + lo * step, &mut out);
+            emit(cx + i * step, cy + hi * step, &mut out);
+        }
+        // Left and right edges (excluding the corners already done).
+        for j in (lo + 1)..hi {
+            emit(cx + lo * step, cy + j * step, &mut out);
+            emit(cx + hi * step, cy + j * step, &mut out);
+        }
+    }
+    out
+}
+
 // Where a ray crosses the horizontal plane y = `plane_y`, going forward. Used to
 // drag a picked object across a horizontal plane at the height it was grabbed.
 fn ray_ground_hit(ray: &Ray, plane_y: Number) -> Option<Point> {
@@ -158,32 +212,28 @@ const MAX_STILL_DEPTH: usize = 12;
 pub struct Viewport {
     scenes: Vec<Scene>,
     window: Window,
-    // One camera per moving-ladder resolution (must match MOVE_LADDER exactly),
-    // plus the full-resolution camera (which also serves as the picking camera).
-    cam_m0: Camera<960, 540>,
-    cam_m1: Camera<480, 270>,
-    cam_m2: Camera<320, 180>,
-    cam_m3: Camera<240, 135>,
-    cam_m4: Camera<160, 90>,
-    cam_m5: Camera<96, 54>,
-    cam_m6: Camera<64, 36>,
-    cam_full: Camera<DISP_W, DISP_H>,
+    // A single full-resolution camera, sampled at whatever block size is needed.
+    // Also the mouse-picking camera.
+    cam: Camera<DISP_W, DISP_H>,
     // Navigation state.
     current: usize,
     world: World,
     pos: Point,
     yaw: Number,
     pitch: Number,
-    // Render state: frame cache + eviction order, and the progressive-refinement
-    // bookkeeping (see the field comments in the original loop).
+    // Render state.
     cache: HashMap<FrameKey, Vec<u32>>,
     order: VecDeque<FrameKey>,
     prev_key: Option<FrameKey>,
-    move_idx: usize,
-    full_up: usize,
-    full_down: usize,
-    full_side: bool,
-    full_rows: usize,
+    // Dynamic moving resolution: trace one ray per `move_block` square, budget-tuned.
+    move_block: usize,
+    // Interlaced still refinement: `refine_block` is the current level, `refine_list`
+    // its center-out sample points, `refine_idx` the next to trace, `refine_chunk`
+    // the budget-tuned number traced per frame.
+    refine_block: usize,
+    refine_list: Vec<(u32, u32)>,
+    refine_idx: usize,
+    refine_chunk: usize,
     shown_key: Option<FrameKey>,
     display: Vec<u32>,
     drag: Option<Drag>,
@@ -211,14 +261,7 @@ impl Viewport {
         Self {
             scenes,
             window,
-            cam_m0: Camera::new(PI / 3.0),
-            cam_m1: Camera::new(PI / 3.0),
-            cam_m2: Camera::new(PI / 3.0),
-            cam_m3: Camera::new(PI / 3.0),
-            cam_m4: Camera::new(PI / 3.0),
-            cam_m5: Camera::new(PI / 3.0),
-            cam_m6: Camera::new(PI / 3.0),
-            cam_full: Camera::new(PI / 3.0),
+            cam: Camera::new(PI / 3.0),
             current: 0,
             world,
             pos,
@@ -227,15 +270,33 @@ impl Viewport {
             cache: HashMap::new(),
             order: VecDeque::new(),
             prev_key: None,
-            move_idx: 2, // start mid-ladder (320x180); auto-adjusts to the budget
-            full_up: DISP_H / 2,
-            full_down: DISP_H / 2,
-            full_side: false,
-            full_rows: 16,
+            move_block: 8, // auto-adjusts to the frame budget
+            refine_block: usize::MAX, // sentinel: refinement not started
+            refine_list: Vec::new(),
+            refine_idx: 0,
+            refine_chunk: 4096,
             shown_key: None,
             display: vec![0; DISP_W * DISP_H],
             drag: None,
             still_depth: STILL_DEPTH,
+        }
+    }
+
+    // Reset the still refinement to "not started" (next still frame begins at the
+    // coarsest level). Called whenever the view or scene changes.
+    fn reset_refine(&mut self) {
+        self.refine_block = usize::MAX;
+        self.refine_list.clear();
+        self.refine_idx = 0;
+    }
+
+    fn cache_frame(&mut self, key: FrameKey) {
+        self.cache.insert(key, self.display.clone());
+        self.order.push_back(key);
+        if self.order.len() > FRAME_CACHE_CAP {
+            if let Some(evicted) = self.order.pop_front() {
+                self.cache.remove(&evicted);
+            }
         }
     }
 
@@ -247,9 +308,7 @@ impl Viewport {
             self.poll_quality();
             self.poll_navigation();
             let view = self.view();
-            // The full camera is used for picking and the final still frame; the
-            // moving cameras get their transform set just before they render.
-            self.cam_full.set_transform(view);
+            self.cam.set_transform(view);
             let scene_changed = self.poll_drag();
             if !self.present(view, scene_changed) {
                 break; // window closed
@@ -318,8 +377,7 @@ impl Viewport {
             self.cache.clear();
             self.order.clear();
             self.shown_key = None;
-            self.full_up = DISP_H / 2;
-            self.full_down = DISP_H / 2;
+            self.reset_refine();
             let name = self.scenes[self.current].name;
             self.window.set_title(&title(name, self.still_depth));
         }
@@ -379,7 +437,7 @@ impl Viewport {
             if let Some((mx, my)) = cursor {
                 let px = (mx as usize).min(DISP_W - 1);
                 let py = (my as usize).min(DISP_H - 1);
-                let ray = self.cam_full.ray_for_pixel(px, py);
+                let ray = self.cam.ray_for_pixel(px, py);
                 // Begin a drag: pick the top-level object under the cursor.
                 if self.drag.is_none() {
                     if let Some(hit) = self.world.intersect_world(&ray).hit() {
@@ -483,110 +541,87 @@ impl Viewport {
             .is_ok()
     }
 
-    // Moving / dragging: render at the current dynamic resolution, upscale to the
-    // window, then nudge the level toward the frame-time budget.
-    fn render_moving(&mut self, view: Matrix<4, 4>) {
-        self.full_up = DISP_H / 2; // abort any in-progress refinement
-        self.full_down = DISP_H / 2;
+    // Moving / dragging: trace one ray per `move_block` square (a sparse,
+    // point-sampled image), bilinear-upscale it to the window, then nudge the
+    // block size toward the frame-time budget. Larger block = coarser + faster.
+    fn render_moving(&mut self, _view: Matrix<4, 4>) {
+        self.reset_refine(); // abort any in-progress refinement
         self.shown_key = None;
+        let b = self.move_block;
+        let sw = (DISP_W / b).max(1);
+        let sh = (DISP_H / b).max(1);
         let start = Instant::now();
-        let small = match self.move_idx {
-            0 => {
-                self.cam_m0.set_transform(view);
-                self.cam_m0.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            1 => {
-                self.cam_m1.set_transform(view);
-                self.cam_m1.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            2 => {
-                self.cam_m2.set_transform(view);
-                self.cam_m2.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            3 => {
-                self.cam_m3.set_transform(view);
-                self.cam_m3.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            4 => {
-                self.cam_m4.set_transform(view);
-                self.cam_m4.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            5 => {
-                self.cam_m5.set_transform(view);
-                self.cam_m5.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-            _ => {
-                self.cam_m6.set_transform(view);
-                self.cam_m6.render_live(&self.world, MOVE_DEPTH).to_argb()
-            }
-        };
-        let (mw, mh) = MOVE_LADDER[self.move_idx];
-        // Guard the ladder/camera invariant: each MOVE_LADDER entry must match the
-        // resolution of the camera rendered for that index, or the upscale would
-        // read past `small`.
-        debug_assert_eq!(small.len(), mw * mh, "MOVE_LADDER does not match cameras");
-        upscale_bilinear(&small, mw, mh, &mut self.display, DISP_W, DISP_H);
-        // Hysteresis: coarser if we blew the budget, finer only when well under it.
+        // Sample the center pixel of each block, in parallel over the small image.
+        let small: Vec<u32> = (0..sw * sh)
+            .into_par_iter()
+            .map(|k| {
+                let px = ((k % sw) * b + b / 2).min(DISP_W - 1);
+                let py = ((k / sw) * b + b / 2).min(DISP_H - 1);
+                self.cam.pixel_argb(&self.world, px, py, MOVE_DEPTH)
+            })
+            .collect();
+        upscale_bilinear(&small, sw, sh, &mut self.display, DISP_W, DISP_H);
+        // Hysteresis on the (power-of-two) block size: coarser if over budget,
+        // finer only when comfortably under it, so it settles per scene.
         let ms = start.elapsed().as_secs_f64() * 1000.0;
-        if ms > FRAME_BUDGET_MS * 1.2 && self.move_idx < MOVE_LADDER.len() - 1 {
-            self.move_idx += 1;
-        } else if ms < FRAME_BUDGET_MS * 0.5 && self.move_idx > 0 {
-            self.move_idx -= 1;
+        if ms > FRAME_BUDGET_MS * 1.2 {
+            self.move_block = (self.move_block * 2).min(MAX_BLOCK);
+        } else if ms < FRAME_BUDGET_MS * 0.5 {
+            self.move_block = (self.move_block / 2).max(1);
         }
     }
 
-    // Held still: build the native full-resolution frame over the coarse preview,
-    // one adaptive stripe per call, expanding outward from the vertical center so
-    // the (usually centered) subject sharpens first.
+    // Held still: refine the frame interlaced, coarse-to-fine. Each level traces a
+    // growing set of sample points (each pixel exactly once across all levels) in
+    // center-out rings, filling each sample's block — so detail grows outward from
+    // the center while reusing every ray already traced. A budgeted chunk per call
+    // keeps input responsive; the work is parallel across the chunk.
     fn refine_still(&mut self, key: FrameKey) {
         if let Some(buffer) = self.cache.get(&key) {
             self.display.copy_from_slice(buffer);
             self.shown_key = Some(key);
-            self.full_up = DISP_H / 2;
-            self.full_down = DISP_H / 2;
+            self.reset_refine();
             return;
         }
-        // Pick the next band: alternate below/above center, falling to whichever
-        // side still has rows left.
-        let down_left = self.full_down < DISP_H;
-        let render_down = if down_left && self.full_up > 0 {
-            !self.full_side
-        } else {
-            down_left
-        };
-        self.full_side = !self.full_side;
-        let (y0, y1) = if render_down {
-            let end = (self.full_down + self.full_rows).min(DISP_H);
-            let band = (self.full_down, end);
-            self.full_down = end;
-            band
-        } else {
-            let start_row = self.full_up.saturating_sub(self.full_rows);
-            let band = (start_row, self.full_up);
-            self.full_up = start_row;
-            band
-        };
+        // Advance to the next level when the current one is exhausted.
+        if self.refine_idx >= self.refine_list.len() {
+            let next = if self.refine_block > MAX_BLOCK {
+                MAX_BLOCK // first level
+            } else {
+                self.refine_block / 2
+            };
+            if next == 0 {
+                // Finest level done: the frame is complete.
+                self.cache_frame(key);
+                self.shown_key = Some(key);
+                self.reset_refine();
+                return;
+            }
+            let prev = if next == MAX_BLOCK { None } else { Some(next * 2) };
+            self.refine_block = next;
+            self.refine_list = center_out_reps(next, prev, DISP_W, DISP_H);
+            self.refine_idx = 0;
+        }
+
+        // Trace a budgeted chunk of this level's sample points in parallel, then
+        // fill their blocks.
+        let b = self.refine_block;
+        let end = (self.refine_idx + self.refine_chunk).min(self.refine_list.len());
+        let slice = &self.refine_list[self.refine_idx..end];
         let start = Instant::now();
-        self.cam_full
-            .render_live_rows(&self.world, self.still_depth, y0, y1, &mut self.display);
-        // Re-size the stripe so each one lands near the frame budget.
+        let colors: Vec<u32> = slice
+            .par_iter()
+            .map(|&(x, y)| self.cam.pixel_argb(&self.world, x as usize, y as usize, self.still_depth))
+            .collect();
+        for (k, &(x, y)) in slice.iter().enumerate() {
+            fill_block(&mut self.display, x as usize, y as usize, b, DISP_W, DISP_H, colors[k]);
+        }
+        self.refine_idx = end;
+        // Re-size the chunk so each lands near the frame budget.
         let ms = start.elapsed().as_secs_f64() * 1000.0;
         if ms > 0.0 {
-            let target = (self.full_rows as f64 * FRAME_BUDGET_MS / ms).round() as usize;
-            self.full_rows = target.clamp(2, DISP_H);
-        }
-        if self.full_down >= DISP_H && self.full_up == 0 {
-            // Frame complete: cache it and stop refining this pose.
-            self.cache.insert(key, self.display.clone());
-            self.order.push_back(key);
-            if self.order.len() > FRAME_CACHE_CAP {
-                if let Some(evicted) = self.order.pop_front() {
-                    self.cache.remove(&evicted);
-                }
-            }
-            self.shown_key = Some(key);
-            self.full_up = DISP_H / 2;
-            self.full_down = DISP_H / 2;
+            let target = (self.refine_chunk as f64 * FRAME_BUDGET_MS / ms).round() as usize;
+            self.refine_chunk = target.clamp(64, DISP_W * DISP_H);
         }
     }
 }
@@ -594,6 +629,28 @@ impl Viewport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn interlaced_levels_cover_every_pixel_exactly_once() {
+        let (w, h) = (8usize, 8usize);
+        // Levels 4, 2, 1 with their previous (coarser) grids.
+        let levels = [(4usize, None), (2, Some(4)), (1, Some(2))];
+        let mut all = Vec::new();
+        for (b, prev) in levels {
+            all.extend(center_out_reps(b, prev, w, h));
+        }
+        assert_eq!(all.len(), w * h, "every pixel traced once, no waste");
+        let set: HashSet<_> = all.iter().copied().collect();
+        assert_eq!(set.len(), w * h, "no pixel traced twice");
+        for x in 0..w {
+            for y in 0..h {
+                assert!(set.contains(&(x as u32, y as u32)), "pixel ({x},{y}) covered");
+            }
+        }
+        // The coarsest level starts at the center.
+        assert_eq!(center_out_reps(4, None, w, h)[0], (4, 4));
+    }
 
     #[test]
     fn ray_ground_hit_finds_the_plane_crossing() {
