@@ -498,19 +498,22 @@ fn chapter16() {
 const DISP_W: usize = 960; // window / full-quality render width
 const DISP_H: usize = 540; // window / full-quality render height
 
-// Progressive quality ladder. Level 0 renders while the camera moves or an object
-// is being dragged; each subsequent still frame steps up one level (more pixels,
-// deeper reflections), refining the image the way a viewport sharpens after you
-// stop. Lower levels are upscaled to fill the window; the top level is the native
-// DISP_W x DISP_H frame and is pose-cached. Tune freely.
-const L0_W: usize = 240; // moving / dragging
-const L0_H: usize = 135;
-const L0_DEPTH: usize = 1;
-const L1_W: usize = 480; // first refinement once still
-const L1_H: usize = 270;
-const L1_DEPTH: usize = 2;
-const STILL_DEPTH: usize = 4; // full frame (level 2) reflection depth
-const MAX_LEVEL: usize = 2;
+// Dynamic resolution while moving. The viewer renders at one of these sizes
+// (finest first), bilinear-upscaled to the window, and after each moving frame
+// nudges toward the level that keeps the frame within FRAME_BUDGET_MS. A light
+// scene settles near full resolution; a heavy scene like the teapot drops to a
+// coarse level so motion stays smooth (just blurrier), then sharpens when still.
+// Each entry has a matching Camera in `flythrough`.
+const MOVE_LADDER: [(usize, usize); 6] =
+    [(480, 270), (320, 180), (240, 135), (160, 90), (96, 54), (64, 36)];
+const MOVE_DEPTH: usize = 1; // reflection depth while moving
+const FRAME_BUDGET_MS: f64 = 33.0; // ~30 fps target, both while moving and per refine stripe
+
+// Once stopped, the full-resolution frame is built in horizontal stripes, a few
+// rows per loop iteration, so the image scan-refines over the coarse preview
+// while input stays responsive between stripes. The stripe height auto-tunes to
+// the frame budget. STILL_DEPTH is the full-frame reflection depth.
+const STILL_DEPTH: usize = 4;
 
 // Frame cache tuning for the live viewer. A full-resolution frame is keyed by the
 // camera pose (position + yaw + pitch) and the scene it belongs to, so flying
@@ -683,11 +686,16 @@ fn flythrough() {
         },
     ];
 
-    // One camera per quality level, all sharing the same pose each frame. cam2 is
-    // also used for mouse picking (it matches the window resolution).
-    let mut cam0: Camera<L0_W, L0_H> = Camera::new(PI / 3.0);
-    let mut cam1: Camera<L1_W, L1_H> = Camera::new(PI / 3.0);
-    let mut cam2: Camera<DISP_W, DISP_H> = Camera::new(PI / 3.0);
+    // One camera per moving-ladder resolution, plus the full-resolution camera
+    // (which also serves as the mouse-picking camera). cam_m0 (480x270) doubles as
+    // the still mid-refinement frame. All share the same pose each frame.
+    let mut cam_m0: Camera<480, 270> = Camera::new(PI / 3.0);
+    let mut cam_m1: Camera<320, 180> = Camera::new(PI / 3.0);
+    let mut cam_m2: Camera<240, 135> = Camera::new(PI / 3.0);
+    let mut cam_m3: Camera<160, 90> = Camera::new(PI / 3.0);
+    let mut cam_m4: Camera<96, 54> = Camera::new(PI / 3.0);
+    let mut cam_m5: Camera<64, 36> = Camera::new(PI / 3.0);
+    let mut cam_full: Camera<DISP_W, DISP_H> = Camera::new(PI / 3.0);
     let title = |name: &str| {
         format!("rusttracer [{name}] - 1-6 scene, N next, WASD/RF move, arrows look, drag to move, Esc quit")
     };
@@ -716,7 +724,12 @@ fn flythrough() {
     // (0..=MAX_LEVEL), climbing while still; `shown_key` marks which pose's full
     // frame is in `display`.
     let mut prev_key: Option<FrameKey> = None;
-    let mut level: usize = 0;
+    // `move_idx` is the current dynamic-resolution level while moving. `full_y` is
+    // the next row of the in-progress full-resolution stripe refinement, and
+    // `full_rows` the auto-tuned stripe height.
+    let mut move_idx: usize = 2; // start mid-ladder (240x135)
+    let mut full_y: usize = 0;
+    let mut full_rows: usize = 16;
     let mut shown_key: Option<FrameKey> = None;
     let mut display: Vec<u32> = vec![0; DISP_W * DISP_H];
     let mut drag: Option<Drag> = None;
@@ -768,11 +781,11 @@ fn flythrough() {
         if window.is_key_down(Key::D) {
             pos = pos + right * MOVE;
         }
-        if window.is_key_down(Key::R) {
-            pos.y += MOVE;
+        if window.is_key_down(Key::Q) {
+            pos.y += MOVE; // Q: rise
         }
-        if window.is_key_down(Key::F) {
-            pos.y -= MOVE;
+        if window.is_key_down(Key::E) {
+            pos.y -= MOVE; // E: descend
         }
         if window.is_key_down(Key::Left) {
             yaw -= LOOK;
@@ -798,11 +811,10 @@ fn flythrough() {
                 z: 0.0,
             },
         );
-        // Every camera shares the pose; setting all three is cheap (one inverse
-        // each) and lets cam2 also serve as the picking camera below.
-        cam0.set_transform(view);
-        cam1.set_transform(view);
-        cam2.set_transform(view);
+        // The full-resolution camera is used for both picking and the final still
+        // frame; the per-render moving cameras get their transform set just before
+        // they render. One inverse here is negligible.
+        cam_full.set_transform(view);
 
         // Mouse: left-click picks the object under the cursor and drags it across
         // the horizontal plane it was grabbed on. Moving an object mutates the
@@ -813,7 +825,7 @@ fn flythrough() {
             if let Some((mx, my)) = cursor {
                 let px = (mx as usize).min(DISP_W - 1);
                 let py = (my as usize).min(DISP_H - 1);
-                let ray = cam2.ray_for_pixel(px, py);
+                let ray = cam_full.ray_for_pixel(px, py);
                 match &drag {
                     None => {
                         // Begin a drag: pick the top-level object under the cursor.
@@ -844,8 +856,8 @@ fn flythrough() {
         }
 
         let key = frame_key(current, pos, yaw, pitch);
-        // "Active" = the view or the scene changed this frame, so fall back to the
-        // coarse level and (if the scene changed) drop the now-stale caches.
+        // "Active" = the view or the scene changed this frame, so render coarsely
+        // and (if the scene changed) drop the now-stale caches.
         let active = prev_key != Some(key) || scene_changed;
         prev_key = Some(key);
         if scene_changed {
@@ -853,42 +865,82 @@ fn flythrough() {
             order.clear();
             world.compute_bounds();
         }
-        if active {
-            level = 0;
-        } else if level < MAX_LEVEL {
-            // Standing still: refine one step toward the full-resolution frame.
-            level += 1;
-        }
 
-        if level >= MAX_LEVEL {
-            // Top level: the native full-resolution frame, cached by pose.
-            if shown_key != Some(key) {
-                if let Some(buffer) = cache.get(&key) {
-                    display.copy_from_slice(buffer);
-                } else {
-                    let buffer = cam2.render_live(&world, STILL_DEPTH).to_argb();
-                    display.copy_from_slice(&buffer);
-                    cache.insert(key, buffer);
+        if active {
+            // Moving / dragging: render at the current dynamic resolution, then
+            // adjust the level toward the frame-time budget for next frame.
+            full_y = 0; // abort any in-progress full refinement
+            shown_key = None;
+            let start = Instant::now();
+            let small = match move_idx {
+                0 => {
+                    cam_m0.set_transform(view);
+                    cam_m0.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+                1 => {
+                    cam_m1.set_transform(view);
+                    cam_m1.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+                2 => {
+                    cam_m2.set_transform(view);
+                    cam_m2.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+                3 => {
+                    cam_m3.set_transform(view);
+                    cam_m3.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+                4 => {
+                    cam_m4.set_transform(view);
+                    cam_m4.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+                _ => {
+                    cam_m5.set_transform(view);
+                    cam_m5.render_live(&world, MOVE_DEPTH).to_argb()
+                }
+            };
+            let (mw, mh) = MOVE_LADDER[move_idx];
+            upscale_bilinear(&small, mw, mh, &mut display, DISP_W, DISP_H);
+            // Hysteresis: drop to a coarser level if we blew the budget, climb to a
+            // finer one only when comfortably under it, so it settles per scene.
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            if ms > FRAME_BUDGET_MS * 1.2 && move_idx < MOVE_LADDER.len() - 1 {
+                move_idx += 1;
+            } else if ms < FRAME_BUDGET_MS * 0.5 && move_idx > 0 {
+                move_idx -= 1;
+            }
+        } else if shown_key != Some(key) {
+            // Held still: build the native full-resolution frame over the coarse
+            // preview, one adaptive stripe per iteration so input stays live.
+            if let Some(buffer) = cache.get(&key) {
+                display.copy_from_slice(buffer);
+                shown_key = Some(key);
+                full_y = 0;
+            } else {
+                let y1 = (full_y + full_rows).min(DISP_H);
+                let start = Instant::now();
+                cam_full.render_live_rows(&world, STILL_DEPTH, full_y, y1, &mut display);
+                // Re-size the stripe so each one lands near the frame budget.
+                let ms = start.elapsed().as_secs_f64() * 1000.0;
+                if ms > 0.0 {
+                    let target = (full_rows as f64 * FRAME_BUDGET_MS / ms).round() as usize;
+                    full_rows = target.clamp(2, DISP_H);
+                }
+                full_y = y1;
+                if full_y >= DISP_H {
+                    // Frame complete: cache it and stop refining this pose.
+                    cache.insert(key, display.clone());
                     order.push_back(key);
                     if order.len() > FRAME_CACHE_CAP {
                         if let Some(evicted) = order.pop_front() {
                             cache.remove(&evicted);
                         }
                     }
+                    shown_key = Some(key);
+                    full_y = 0;
                 }
-                shown_key = Some(key);
-            }
-        } else {
-            // A lower level: render small and bilinear-upscale to fill the window.
-            shown_key = None;
-            if level == 0 {
-                let small = cam0.render_live(&world, L0_DEPTH).to_argb();
-                upscale_bilinear(&small, L0_W, L0_H, &mut display, DISP_W, DISP_H);
-            } else {
-                let small = cam1.render_live(&world, L1_DEPTH).to_argb();
-                upscale_bilinear(&small, L1_W, L1_H, &mut display, DISP_W, DISP_H);
             }
         }
+        // Otherwise still and already showing the full frame: reuse `display`.
         if window.update_with_buffer(&display, DISP_W, DISP_H).is_err() {
             break; // window closed
         }
@@ -991,20 +1043,34 @@ fn bench() {
     ];
     for (name, world, from, to) in scenes {
         let up = Vector { x: 0.0, y: 1.0, z: 0.0 };
-        let mut lo: Camera<L0_W, L0_H> = Camera::new(PI / 3.0);
-        lo.set_transform(view_transform(from, to, up));
+        // Time each moving-ladder resolution so the dynamic scaler's choices are
+        // visible, plus the full still frame.
+        macro_rules! time_move {
+            ($w:literal, $h:literal) => {{
+                let mut c: Camera<$w, $h> = Camera::new(PI / 3.0);
+                c.set_transform(view_transform(from, to, up));
+                let start = Instant::now();
+                let _ = c.render_live(&world, MOVE_DEPTH);
+                let dt = start.elapsed();
+                println!(
+                    "bench:   {name} moving {}x{} d{MOVE_DEPTH}: {dt:.3?} (~{:.0} fps)",
+                    $w,
+                    $h,
+                    1.0 / dt.as_secs_f64()
+                );
+            }};
+        }
+        time_move!(480, 270);
+        time_move!(240, 135);
+        time_move!(96, 54);
+        time_move!(64, 36);
         let mut hi: Camera<DISP_W, DISP_H> = Camera::new(PI / 3.0);
         hi.set_transform(view_transform(from, to, up));
-
-        let start = Instant::now();
-        let _ = lo.render_live(&world, L0_DEPTH);
-        let moving = start.elapsed();
         let start = Instant::now();
         let _ = hi.render_live(&world, STILL_DEPTH);
-        let still = start.elapsed();
         println!(
-            "bench: {name} moving {L0_W}x{L0_H} d{L0_DEPTH}: {moving:.3?} (~{:.0} fps) | still {DISP_W}x{DISP_H} d{STILL_DEPTH}: {still:.3?}",
-            1.0 / moving.as_secs_f64()
+            "bench:   {name} still {DISP_W}x{DISP_H} d{STILL_DEPTH}: {:.3?}",
+            start.elapsed()
         );
     }
 }

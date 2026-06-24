@@ -170,6 +170,34 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             });
         image
     }
+    // Render only rows [y0, y1) directly into the ARGB framebuffer `dst` (a full
+    // HSIZE*VSIZE buffer). This lets the viewer build a full-resolution frame in
+    // small stripes across several iterations, polling input between them so a
+    // slow frame never blocks interaction. Rows within the band still render in
+    // parallel.
+    pub fn render_live_rows(
+        &self,
+        world: &World,
+        depth: usize,
+        y0: usize,
+        y1: usize,
+        dst: &mut [u32],
+    ) {
+        let y1 = y1.min(VSIZE);
+        if y0 >= y1 {
+            return;
+        }
+        dst[y0 * HSIZE..y1 * HSIZE]
+            .par_chunks_mut(HSIZE)
+            .enumerate()
+            .for_each(|(i, row)| {
+                let y = y0 + i;
+                for x in 0..HSIZE {
+                    let p = self.color_for_pixel(world, x, y, depth);
+                    row[x] = (p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32;
+                }
+            });
+    }
 }
 
 // A deterministic jitter for lens sampling: hash (px, py, sample) into two values
@@ -198,6 +226,25 @@ fn lens_jitter(px: usize, py: usize, sample: usize) -> (Number, Number) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worlds::World;
+
+    #[test]
+    fn render_live_rows_matches_a_full_render() {
+        // Striped rendering must produce exactly the same pixels as one full pass,
+        // since the viewer assembles the still frame from stripes.
+        let mut c: Camera<20, 12> = Camera::new(PI / 2.0);
+        c.set_transform(translation(0.0, 0.0, -5.0));
+        let world = World::default();
+        let full = c.render_live(&world, 2).to_argb();
+        let mut banded = vec![0u32; 20 * 12];
+        let mut y = 0;
+        while y < 12 {
+            let y1 = (y + 5).min(12);
+            c.render_live_rows(&world, 2, y, y1, &mut banded);
+            y = y1;
+        }
+        assert_eq!(full, banded);
+    }
 
     #[test]
     fn constructing_a_camera() {
