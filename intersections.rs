@@ -168,8 +168,14 @@ impl Intersections {
         }
         result
     }
+    // Append without sorting. Sorting on every append made a scene-wide intersect
+    // do O(objects) sorts of a growing list. Callers that need t-order sort once
+    // at the point of use: `intersect_world` before returning, and
+    // `filter_intersections` for CSG. `hit()` scans linearly and needs no order.
     pub fn extend(&mut self, mut other: Intersections) -> () {
         self.intersections.append(&mut other.intersections);
+    }
+    pub fn sort(&mut self) {
         self.intersections.sort();
     }
     pub fn count(&self) -> usize {

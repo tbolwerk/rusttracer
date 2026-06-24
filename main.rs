@@ -64,6 +64,12 @@ fn main() -> Result<(), ()> {
         chapter16();
         return Ok(());
     }
+    // `cargo run --release -- bench` times single high-res frames of the live
+    // scenes, with bounding-box culling on and off, as a CPU benchmark.
+    if std::env::args().any(|a| a == "bench") {
+        bench();
+        return Ok(());
+    }
     // `cargo run --release -- bonus` renders the combined bonus-chapters scene
     // (area light, texture mapping, focal blur, divide). Kept out of the default
     // chapter sweep because lens + area-light sampling makes it slow.
@@ -483,23 +489,84 @@ fn chapter16() {
     }
 }
 
-// Internal render resolution + recursion depth for the interactive viewer. Kept
-// small so it stays real-time; the window scales it up. Tune to taste.
-const LIVE_W: usize = 320;
-const LIVE_H: usize = 180;
-const LIVE_DEPTH: usize = 3;
+// Adaptive resolution for the interactive viewer. Ray tracing a high-resolution
+// frame with reflections is far too slow to do every frame on a CPU, so the
+// viewer renders coarsely *while the camera is moving* (few pixels, shallow
+// reflections, upscaled to fill the window) and only renders the full
+// DISP_W x DISP_H frame once the camera stops. The full frames are pose-cached,
+// so revisiting a viewpoint is instant.
+const DISP_W: usize = 960; // window / full-quality render width
+const DISP_H: usize = 540; // window / full-quality render height
 
-// Frame cache tuning for the live viewer. A rendered frame is keyed by the
+// Progressive quality ladder. Level 0 renders while the camera moves or an object
+// is being dragged; each subsequent still frame steps up one level (more pixels,
+// deeper reflections), refining the image the way a viewport sharpens after you
+// stop. Lower levels are upscaled to fill the window; the top level is the native
+// DISP_W x DISP_H frame and is pose-cached. Tune freely.
+const L0_W: usize = 240; // moving / dragging
+const L0_H: usize = 135;
+const L0_DEPTH: usize = 1;
+const L1_W: usize = 480; // first refinement once still
+const L1_H: usize = 270;
+const L1_DEPTH: usize = 2;
+const STILL_DEPTH: usize = 4; // full frame (level 2) reflection depth
+const MAX_LEVEL: usize = 2;
+
+// Frame cache tuning for the live viewer. A full-resolution frame is keyed by the
 // camera pose (position + yaw + pitch) and the scene it belongs to, so flying
 // back through a viewpoint already seen returns the cached frame instead of
 // re-tracing every pixel. The pose is quantized onto a grid to make revisits
 // hit: POSE_STEP is the position grid (world units) and ANGLE_STEP the look
 // grid (radians). Finer grids reduce the visual "snap" of a reused frame but
-// reuse less often. A standing-still pose is pixel-identical frame to frame and
-// hits regardless of the grid, so idle frames are always lossless reuse.
+// reuse less often.
 const POSE_STEP: Number = 0.1; // ~10 cm position buckets
 const ANGLE_STEP: Number = 0.01; // ~0.6 degree look buckets
-const FRAME_CACHE_CAP: usize = 128; // bounded: ~128 * 320*180 * 4 bytes ≈ 30 MB
+const FRAME_CACHE_CAP: usize = 24; // bounded: ~24 * 960*540 * 4 bytes ≈ 50 MB
+
+// Bilinear upscale of a coarse ARGB frame into the full-size display buffer.
+// Blending four source texels per channel turns the blocky nearest-neighbor
+// preview into a smooth one for the cost of a little blur, which reads far better
+// while moving than hard pixel edges. Cheap enough to run every frame.
+fn upscale_bilinear(src: &[u32], sw: usize, sh: usize, dst: &mut [u32], dw: usize, dh: usize) {
+    // Per-channel lerp on packed 0x00RRGGBB values.
+    let lerp = |a: u32, b: u32, t: f64| -> u32 {
+        let chan = |shift: u32| {
+            let av = ((a >> shift) & 0xff) as f64;
+            let bv = ((b >> shift) & 0xff) as f64;
+            (av + (bv - av) * t).round() as u32
+        };
+        (chan(16) << 16) | (chan(8) << 8) | chan(0)
+    };
+    for y in 0..dh {
+        // Map the dst pixel center back into source space, then clamp to texels.
+        let fy = (y as f64 + 0.5) * sh as f64 / dh as f64 - 0.5;
+        let y0 = fy.floor().max(0.0) as usize;
+        let y1 = (y0 + 1).min(sh - 1);
+        let ty = (fy - y0 as f64).clamp(0.0, 1.0);
+        for x in 0..dw {
+            let fx = (x as f64 + 0.5) * sw as f64 / dw as f64 - 0.5;
+            let x0 = fx.floor().max(0.0) as usize;
+            let x1 = (x0 + 1).min(sw - 1);
+            let tx = (fx - x0 as f64).clamp(0.0, 1.0);
+            let top = lerp(src[y0 * sw + x0], src[y0 * sw + x1], tx);
+            let bot = lerp(src[y1 * sw + x0], src[y1 * sw + x1], tx);
+            dst[y * dw + x] = lerp(top, bot, ty);
+        }
+    }
+}
+
+// Where a ray crosses the horizontal plane y = `plane_y`, going forward. Used to
+// drag a picked object across a horizontal plane at the height it was grabbed.
+fn ray_ground_hit(ray: &Ray, plane_y: Number) -> Option<Point> {
+    if ray.direction.y.abs() < EPSILON {
+        return None;
+    }
+    let t = (plane_y - ray.origin.y) / ray.direction.y;
+    if t < 0.0 {
+        return None;
+    }
+    Some(ray.position(t))
+}
 
 // A cache key for a rendered live frame: the scene index plus the camera pose
 // snapped to the grids above. Quantizing to integers makes the key hashable and
@@ -531,11 +598,20 @@ struct Scene {
 // minifb), so there is no pipe, player, or terminal to coordinate. Number keys
 // 1-4 switch scenes; closing the window or pressing Esc exits.
 fn flythrough() {
-    use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+    use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
     use std::collections::{HashMap, VecDeque};
 
     const MOVE: Number = 0.35; // world units per frame while a move key is held
     const LOOK: Number = 0.04; // radians per frame while a look key is held
+
+    // An in-progress object drag: the object being moved, its transform at the
+    // moment it was grabbed, and the world point under the cursor at grab time.
+    // Dragging translates the object along the horizontal plane through `grab`.
+    struct Drag {
+        id: usize,
+        base: Matrix<4, 4>,
+        grab: Point,
+    }
 
     // Each scene starts from a pose that frames it; fly freely from there.
     let scenes = [
@@ -607,16 +683,20 @@ fn flythrough() {
         },
     ];
 
-    let mut camera: Camera<LIVE_W, LIVE_H> = Camera::new(PI / 3.0);
+    // One camera per quality level, all sharing the same pose each frame. cam2 is
+    // also used for mouse picking (it matches the window resolution).
+    let mut cam0: Camera<L0_W, L0_H> = Camera::new(PI / 3.0);
+    let mut cam1: Camera<L1_W, L1_H> = Camera::new(PI / 3.0);
+    let mut cam2: Camera<DISP_W, DISP_H> = Camera::new(PI / 3.0);
     let title = |name: &str| {
-        format!("rusttracer [{name}] - 1-6 scene, N next, WASD/RF move, arrows look, Esc quit")
+        format!("rusttracer [{name}] - 1-6 scene, N next, WASD/RF move, arrows look, drag to move, Esc quit")
     };
     let mut window = Window::new(
         &title(scenes[0].name),
-        LIVE_W,
-        LIVE_H,
+        DISP_W,
+        DISP_H,
         WindowOptions {
-            scale: Scale::X4, // 320x180 render shown in a 1280x720 window
+            scale: Scale::X1,
             ..WindowOptions::default()
         },
     )
@@ -628,14 +708,18 @@ fn flythrough() {
     let mut yaw = scenes[current].yaw;
     let mut pitch = scenes[current].pitch;
 
-    // Pose-keyed cache of rendered frames (as the ARGB buffers the window wants),
-    // plus an insertion-order queue so the cache can evict its oldest frame once
-    // it reaches FRAME_CACHE_CAP. `last_key` lets a standing-still frame skip the
-    // hash lookup entirely and reuse the previous buffer with zero error.
+    // Pose-keyed cache of full-resolution frames, plus an insertion-order queue so
+    // the cache can evict its oldest frame once it reaches FRAME_CACHE_CAP.
     let mut cache: HashMap<FrameKey, Vec<u32>> = HashMap::new();
     let mut order: VecDeque<FrameKey> = VecDeque::new();
-    let mut last_key: Option<FrameKey> = None;
-    let mut last_buffer: Vec<u32> = Vec::new();
+    // `prev_key` detects camera motion; `level` is the current refinement step
+    // (0..=MAX_LEVEL), climbing while still; `shown_key` marks which pose's full
+    // frame is in `display`.
+    let mut prev_key: Option<FrameKey> = None;
+    let mut level: usize = 0;
+    let mut shown_key: Option<FrameKey> = None;
+    let mut display: Vec<u32> = vec![0; DISP_W * DISP_H];
+    let mut drag: Option<Drag> = None;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Scene switching: digits 1-4 pick a scene, N cycles to the next. Each
@@ -705,7 +789,7 @@ fn flythrough() {
         pitch = pitch.clamp(-1.5, 1.5);
 
         let fwd = forward(yaw, pitch);
-        camera.set_transform(view_transform(
+        let view = view_transform(
             pos,
             pos + fwd,
             Vector {
@@ -713,30 +797,99 @@ fn flythrough() {
                 y: 1.0,
                 z: 0.0,
             },
-        ));
-        // Reuse a cached frame when this pose+scene has been rendered before.
-        // Standing still hits `last_key` and skips even the hash lookup; a
-        // revisited viewpoint hits the cache; only a genuinely new pose renders.
-        let key = frame_key(current, pos, yaw, pitch);
-        if last_key != Some(key) {
-            if let Some(buffer) = cache.get(&key) {
-                last_buffer = buffer.clone();
-            } else {
-                last_buffer = camera.render_live(&world, LIVE_DEPTH).to_argb();
-                cache.insert(key, last_buffer.clone());
-                order.push_back(key);
-                if order.len() > FRAME_CACHE_CAP {
-                    if let Some(evicted) = order.pop_front() {
-                        cache.remove(&evicted);
+        );
+        // Every camera shares the pose; setting all three is cheap (one inverse
+        // each) and lets cam2 also serve as the picking camera below.
+        cam0.set_transform(view);
+        cam1.set_transform(view);
+        cam2.set_transform(view);
+
+        // Mouse: left-click picks the object under the cursor and drags it across
+        // the horizontal plane it was grabbed on. Moving an object mutates the
+        // scene, so it invalidates the frame cache and the cached bounding boxes.
+        let mut scene_changed = false;
+        let cursor = window.get_mouse_pos(MouseMode::Discard);
+        if window.get_mouse_down(MouseButton::Left) {
+            if let Some((mx, my)) = cursor {
+                let px = (mx as usize).min(DISP_W - 1);
+                let py = (my as usize).min(DISP_H - 1);
+                let ray = cam2.ray_for_pixel(px, py);
+                match &drag {
+                    None => {
+                        // Begin a drag: pick the top-level object under the cursor.
+                        if let Some(hit) = world.intersect_world(&ray).hit() {
+                            let root = world.root_of(hit.object_id);
+                            if world.is_pickable(root) {
+                                drag = Some(Drag {
+                                    id: root,
+                                    base: world.objects[root].get_transform(),
+                                    grab: ray.position(hit.t),
+                                });
+                            }
+                        }
+                    }
+                    Some(d) => {
+                        // Continue: slide the object so the grab point tracks the
+                        // cursor across the horizontal plane at the grab height.
+                        if let Some(p) = ray_ground_hit(&ray, d.grab.y) {
+                            let delta = translation(p.x - d.grab.x, 0.0, p.z - d.grab.z);
+                            world.objects[d.id].set_transform(d.base.then(delta));
+                            scene_changed = true;
+                        }
                     }
                 }
             }
-            last_key = Some(key);
+        } else {
+            drag = None;
         }
-        if window
-            .update_with_buffer(&last_buffer, LIVE_W, LIVE_H)
-            .is_err()
-        {
+
+        let key = frame_key(current, pos, yaw, pitch);
+        // "Active" = the view or the scene changed this frame, so fall back to the
+        // coarse level and (if the scene changed) drop the now-stale caches.
+        let active = prev_key != Some(key) || scene_changed;
+        prev_key = Some(key);
+        if scene_changed {
+            cache.clear();
+            order.clear();
+            world.compute_bounds();
+        }
+        if active {
+            level = 0;
+        } else if level < MAX_LEVEL {
+            // Standing still: refine one step toward the full-resolution frame.
+            level += 1;
+        }
+
+        if level >= MAX_LEVEL {
+            // Top level: the native full-resolution frame, cached by pose.
+            if shown_key != Some(key) {
+                if let Some(buffer) = cache.get(&key) {
+                    display.copy_from_slice(buffer);
+                } else {
+                    let buffer = cam2.render_live(&world, STILL_DEPTH).to_argb();
+                    display.copy_from_slice(&buffer);
+                    cache.insert(key, buffer);
+                    order.push_back(key);
+                    if order.len() > FRAME_CACHE_CAP {
+                        if let Some(evicted) = order.pop_front() {
+                            cache.remove(&evicted);
+                        }
+                    }
+                }
+                shown_key = Some(key);
+            }
+        } else {
+            // A lower level: render small and bilinear-upscale to fill the window.
+            shown_key = None;
+            if level == 0 {
+                let small = cam0.render_live(&world, L0_DEPTH).to_argb();
+                upscale_bilinear(&small, L0_W, L0_H, &mut display, DISP_W, DISP_H);
+            } else {
+                let small = cam1.render_live(&world, L1_DEPTH).to_argb();
+                upscale_bilinear(&small, L1_W, L1_H, &mut display, DISP_W, DISP_H);
+            }
+        }
+        if window.update_with_buffer(&display, DISP_W, DISP_H).is_err() {
             break; // window closed
         }
     }
@@ -755,6 +908,105 @@ fn forward(yaw: Number, pitch: Number) -> Vector {
 // The live flythrough scene uses the smooth-shaded teapot.
 fn build_teapot_world() -> World {
     load_teapot(true)
+}
+
+// A CPU benchmark: render a high-res frame of a few scenes and print timings.
+// Used to compare optimizations. Renders to nothing (timing only).
+fn bench() {
+    const W: usize = 1280;
+    const H: usize = 720;
+    let look = |camera: &mut Camera<W, H>, from: Point, to: Point| {
+        camera.set_transform(view_transform(
+            from,
+            to,
+            Vector {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        ));
+    };
+
+    // Marbles with bounding boxes on, and the same scene with them off, so the
+    // cost of the per-ray work (and the intersection bookkeeping) is visible.
+    let marbles = build_marbles_world();
+    let mut naive = marbles.clone();
+    naive.use_bounds = false;
+    let mut camera: Camera<W, H> = Camera::new(PI / 3.0);
+    look(
+        &mut camera,
+        Point {
+            x: 0.0,
+            y: 4.0,
+            z: -11.0,
+        },
+        Point {
+            x: 0.0,
+            y: 0.3,
+            z: 0.0,
+        },
+    );
+
+    for (label, world) in [("marbles (no bounds)", naive), ("marbles (bvh)", marbles)] {
+        let start = Instant::now();
+        let _ = camera.render_par(world);
+        println!("bench: {label} {W}x{H}: {:.3?}", start.elapsed());
+    }
+
+    let teapot = build_teapot_world();
+    let mut tcam: Camera<W, H> = Camera::new(PI / 3.0);
+    look(
+        &mut tcam,
+        Point {
+            x: 6.0,
+            y: 5.0,
+            z: -8.0,
+        },
+        Point {
+            x: 0.0,
+            y: 1.2,
+            z: 0.0,
+        },
+    );
+    let start = Instant::now();
+    let _ = tcam.render_par(teapot);
+    println!("bench: teapot (bvh) {W}x{H}: {:.3?}", start.elapsed());
+
+    // The two costs the adaptive viewer actually pays: a coarse frame while
+    // moving, and a full frame once stopped.
+    println!("--- live viewer (adaptive) ---");
+    let scenes: [(&str, World, Point, Point); 2] = [
+        (
+            "marbles",
+            build_marbles_world(),
+            Point { x: 0.0, y: 4.0, z: -11.0 },
+            Point { x: 0.0, y: 0.3, z: 0.0 },
+        ),
+        (
+            "teapot",
+            build_teapot_world(),
+            Point { x: 0.0, y: 4.0, z: -10.0 },
+            Point { x: 0.0, y: 1.0, z: 0.0 },
+        ),
+    ];
+    for (name, world, from, to) in scenes {
+        let up = Vector { x: 0.0, y: 1.0, z: 0.0 };
+        let mut lo: Camera<L0_W, L0_H> = Camera::new(PI / 3.0);
+        lo.set_transform(view_transform(from, to, up));
+        let mut hi: Camera<DISP_W, DISP_H> = Camera::new(PI / 3.0);
+        hi.set_transform(view_transform(from, to, up));
+
+        let start = Instant::now();
+        let _ = lo.render_live(&world, L0_DEPTH);
+        let moving = start.elapsed();
+        let start = Instant::now();
+        let _ = hi.render_live(&world, STILL_DEPTH);
+        let still = start.elapsed();
+        println!(
+            "bench: {name} moving {L0_W}x{L0_H} d{L0_DEPTH}: {moving:.3?} (~{:.0} fps) | still {DISP_W}x{DISP_H} d{STILL_DEPTH}: {still:.3?}",
+            1.0 / moving.as_secs_f64()
+        );
+    }
 }
 
 // Load the Utah teapot (teapot.obj, ~6300 flat triangles) onto a reflective
@@ -2124,4 +2376,55 @@ fn chapter1() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod viewer_tests {
+    use super::*;
+
+    #[test]
+    fn ray_ground_hit_finds_the_plane_crossing() {
+        let down = Ray {
+            origin: Point { x: 0.0, y: 5.0, z: 0.0 },
+            direction: Vector { x: 0.0, y: -1.0, z: 0.0 },
+        };
+        let p = ray_ground_hit(&down, 1.0).expect("should cross y=1");
+        assert_almost_eq!(p.y, 1.0);
+        assert_almost_eq!(p.x, 0.0);
+        assert_almost_eq!(p.z, 0.0);
+        // Parallel to the plane: no crossing.
+        let flat = Ray {
+            origin: Point { x: 0.0, y: 5.0, z: 0.0 },
+            direction: Vector { x: 1.0, y: 0.0, z: 0.0 },
+        };
+        assert!(ray_ground_hit(&flat, 1.0).is_none());
+        // Pointing away (plane is behind the ray): no forward crossing.
+        let up = Ray {
+            origin: Point { x: 0.0, y: 5.0, z: 0.0 },
+            direction: Vector { x: 0.0, y: 1.0, z: 0.0 },
+        };
+        assert!(ray_ground_hit(&up, 1.0).is_none());
+    }
+
+    #[test]
+    fn bilinear_upscale_preserves_a_flat_color() {
+        let src = vec![0x00_80_40_20u32; 4]; // 2x2, uniform
+        let mut dst = vec![0u32; 16]; // 4x4
+        upscale_bilinear(&src, 2, 2, &mut dst, 4, 4);
+        for p in dst {
+            assert_eq!(p, 0x00_80_40_20);
+        }
+    }
+
+    #[test]
+    fn bilinear_upscale_blends_between_texels() {
+        // 2x1 source: left fully red, right black.
+        let src = vec![0x00_ff_00_00u32, 0x00_00_00_00u32];
+        let mut dst = vec![0u32; 8]; // 8x1
+        upscale_bilinear(&src, 2, 1, &mut dst, 8, 1);
+        let red = |p: u32| (p >> 16) & 0xff;
+        assert!(red(dst[0]) > 200, "left edge stays red");
+        assert!(red(dst[7]) < 60, "right edge stays dark");
+        assert!(red(dst[0]) >= red(dst[7]), "red falls off left to right");
+    }
 }

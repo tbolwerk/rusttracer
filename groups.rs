@@ -129,8 +129,11 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = w.intersect_object(g, &r);
+        let mut xs = w.intersect_object(g, &r);
         assert_eq!(xs.count(), 4);
+        // `intersect_object` no longer sorts internally (the top-level
+        // `intersect_world` does); sort here to check the by-t ordering.
+        xs.sort();
         // ordered by t: the two hits on s2 (nearer) precede the two on s1
         assert_eq!(xs[0].object_id, s2);
         assert_eq!(xs[1].object_id, s2);

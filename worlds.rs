@@ -44,6 +44,9 @@ impl World {
                 intersections.extend(self.intersect_object(id, ray));
             }
         }
+        // Sort once, here, now that every root has contributed. `color_at` and the
+        // tests rely on `intersect_world` returning hits in t-order.
+        intersections.sort();
         intersections
     }
     // Dispatch a ray to the arena object `id`. For a group, move the ray into
@@ -119,11 +122,14 @@ impl World {
     // the hits in t-order, track whether the ray is currently inside the left and
     // right children; for each hit, `intersection_allowed` decides if it survives,
     // then crossing that surface flips the corresponding inside flag.
-    pub fn filter_intersections(&self, csg_id: usize, xs: Intersections) -> Intersections {
+    pub fn filter_intersections(&self, csg_id: usize, mut xs: Intersections) -> Intersections {
         let (operation, left) = match &self.objects[csg_id] {
             Shape::Csg(csg) => (csg.operation, csg.left.unwrap()),
             _ => return xs,
         };
+        // The walk below depends on t-order, and the two children were appended
+        // without sorting, so order them now.
+        xs.sort();
         let mut inside_left = false;
         let mut inside_right = false;
         let mut result = vec![];
@@ -276,6 +282,38 @@ impl World {
             }
             _ => {}
         }
+    }
+    // The top-level ancestor of `id`: walk parent links until reaching a root.
+    // Used by the interactive viewer to turn a picked leaf (which may be deep
+    // inside a group/CSG) into the draggable object it belongs to.
+    pub fn root_of(&self, mut id: usize) -> usize {
+        while let Some(parent) = self.objects[id].parent() {
+            id = parent;
+        }
+        id
+    }
+    // Whether object `id` is a sensible drag target: it must have finite bounds
+    // (so not an infinite plane like a floor) and not be enormous (so not the
+    // sky sphere). Everything else — a marble, the teapot group, the CSG widget —
+    // is fair game.
+    pub fn is_pickable(&self, id: usize) -> bool {
+        // Bounds in the object's own frame (the leaf cube for a scaled sphere)
+        // would miss its scale, so use the transformed bounds. For a root object
+        // that is its world-space box.
+        let b = self.parent_space_bounds(id);
+        let finite = b.min.x.is_finite()
+            && b.min.y.is_finite()
+            && b.min.z.is_finite()
+            && b.max.x.is_finite()
+            && b.max.y.is_finite()
+            && b.max.z.is_finite();
+        if !finite {
+            return false;
+        }
+        let extent = (b.max.x - b.min.x)
+            .max(b.max.y - b.min.y)
+            .max(b.max.z - b.min.z);
+        extent < 100.0
     }
     // Book's world_to_object: walk up the parent chain applying each ancestor's
     // inverse transform, then this object's own, converting a world-space point
@@ -865,6 +903,33 @@ mod tests {
             assert_eq!(w.intensity_at(point, &light), expected, "point={point:?}");
         }
     }
+    #[test]
+    fn root_of_walks_to_the_top_level_object() {
+        let mut w = World::new();
+        let g1 = w.add_object(Shape::group());
+        let g2 = w.add_child(g1, Shape::group());
+        let s = w.add_child(g2, Shape::sphere());
+        assert_eq!(w.root_of(s), g1);
+        assert_eq!(w.root_of(g2), g1);
+        assert_eq!(w.root_of(g1), g1);
+        // A lone root is its own root.
+        let lone = w.add_object(Shape::sphere());
+        assert_eq!(w.root_of(lone), lone);
+    }
+
+    #[test]
+    fn pickability_excludes_floors_and_the_sky() {
+        let mut w = World::new();
+        let sphere = w.add_object(Shape::sphere()); // unit, extent 2 -> pickable
+        assert!(w.is_pickable(sphere));
+        let plane = w.add_object(Shape::plane()); // infinite -> not pickable
+        assert!(!w.is_pickable(plane));
+        let mut huge = Shape::sphere();
+        huge.set_transform(scaling(1000.0, 1000.0, 1000.0)); // sky -> not pickable
+        let sky = w.add_object(huge);
+        assert!(!w.is_pickable(sky));
+    }
+
     // Helper: the children ids of the group at `id`.
     fn group_children(w: &World, id: usize) -> Vec<usize> {
         match &w.objects[id] {
