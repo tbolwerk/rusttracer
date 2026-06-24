@@ -187,15 +187,17 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         if y0 >= y1 {
             return;
         }
+        // Parallelize over pixels, not rows: a refinement stripe can be only a few
+        // rows tall, and one-task-per-row would leave most cores idle. Rayon splits
+        // this contiguous slice across all threads regardless of stripe height.
         dst[y0 * HSIZE..y1 * HSIZE]
-            .par_chunks_mut(HSIZE)
+            .par_iter_mut()
             .enumerate()
-            .for_each(|(i, row)| {
-                let y = y0 + i;
-                for x in 0..HSIZE {
-                    let p = self.color_for_pixel(world, x, y, depth);
-                    row[x] = (p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32;
-                }
+            .for_each(|(i, px)| {
+                let y = y0 + i / HSIZE;
+                let x = i % HSIZE;
+                let p = self.color_for_pixel(world, x, y, depth);
+                *px = (p.r as u32) << 16 | (p.g as u32) << 8 | p.b as u32;
             });
     }
 }
