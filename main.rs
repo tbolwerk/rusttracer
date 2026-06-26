@@ -62,7 +62,78 @@ mod gpu;
 
 use std::time::Instant;
 
+// Render one scene on the GPU (via the SPIR-V shader) and write gpu.ppm.
+#[cfg(feature = "gpu")]
+fn gpu_demo() {
+    use materials::Material;
+    use shapes::{HasMaterial, HasTransform};
+    use transformations::view_transform;
+
+    const W: usize = 600;
+    const H: usize = 400;
+
+    let mut world = worlds::World::new();
+
+    // Floor: a large matte plane.
+    let mut floor = shapes::Primitive::plane();
+    let mut floor_mat = Material::default();
+    floor_mat.set_color(Color { r: 0.9, g: 0.9, b: 0.9 });
+    floor_mat.set_specular(0.0);
+    floor.set_material(floor_mat);
+    world.add_object(floor);
+
+    // A blue sphere sitting on the floor.
+    let mut ball = shapes::Primitive::sphere();
+    ball.set_transform(translation(0.0, 1.0, 0.0));
+    let mut ball_mat = Material::default();
+    ball_mat.set_color(Color { r: 0.1, g: 0.5, b: 1.0 });
+    ball.set_material(ball_mat);
+    world.add_object(ball);
+
+    world.lights.push(Light::point_light(
+        Point { x: -10.0, y: 10.0, z: -10.0 },
+        Color { r: 1.0, g: 1.0, b: 1.0 },
+    ));
+    world.compute_bounds();
+
+    let mut camera: Camera<W, H> = Camera::new(PI / 3.0);
+    camera.set_transform(view_transform(
+        Point { x: 0.0, y: 1.5, z: -5.0 },
+        Point { x: 0.0, y: 1.0, z: 0.0 },
+        Vector { x: 0.0, y: 1.0, z: 0.0 },
+    ));
+
+    let cam = camera.to_cam(5);
+    println!("gpu: dispatching {W}x{H} compute shader...");
+    let pixels = gpu::render_gpu(&world, &cam);
+    write_ppm_u32("gpu.ppm", &pixels, W, H);
+    println!("gpu: wrote gpu.ppm");
+}
+
+// Write packed 0x00RRGGBB pixels as a binary (P6) PPM.
+#[cfg(feature = "gpu")]
+fn write_ppm_u32(path: &str, pixels: &[u32], w: usize, h: usize) {
+    use std::io::Write;
+    let mut bytes = Vec::with_capacity(pixels.len() * 3);
+    for &p in pixels {
+        bytes.push(((p >> 16) & 0xff) as u8);
+        bytes.push(((p >> 8) & 0xff) as u8);
+        bytes.push((p & 0xff) as u8);
+    }
+    let mut f = std::fs::File::create(path).expect("create gpu.ppm");
+    write!(f, "P6\n{w} {h}\n255\n").expect("write ppm header");
+    f.write_all(&bytes).expect("write ppm body");
+}
+
 fn main() -> Result<(), ()> {
+    // `cargo run --release --features gpu -- gpu` renders one scene on the GPU
+    // (dispatches the SPIR-V shader via wgpu) and writes gpu.ppm. Proves the
+    // shared renderer runs on the GPU; needs gpu/spv/raycore_shader.spv built.
+    #[cfg(feature = "gpu")]
+    if std::env::args().any(|a| a == "gpu") {
+        gpu_demo();
+        return Ok(());
+    }
     // `cargo run --release -- fly` opens an interactive window you can fly
     // through, instead of rendering the chapters to files.
     if std::env::args().any(|a| a == "fly") {

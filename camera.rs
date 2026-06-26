@@ -132,6 +132,20 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
         self.transform = transform;
         self.inverse_transform = inverse(&transform);
     }
+    // Flatten this camera into the GPU-uploadable `Cam` (pinhole; focal blur is
+    // host-only). `max_depth` is the reflection/refraction bounce budget.
+    #[cfg(feature = "gpu")]
+    pub fn to_cam(&self, max_depth: u32) -> raycore::render::Cam {
+        raycore::render::Cam {
+            inverse_transform: self.inverse_transform.unwrap_or(Matrix::identity()),
+            pixel_size: self.pixel_size,
+            half_width: self.half_width,
+            half_height: self.half_height,
+            hsize: HSIZE as u32,
+            vsize: VSIZE as u32,
+            max_depth,
+        }
+    }
     pub fn render(&self, world: World) -> Canvas<VSIZE, HSIZE> {
         let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
         for y in 0..VSIZE {
