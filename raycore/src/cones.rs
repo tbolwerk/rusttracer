@@ -210,8 +210,9 @@ fn intersecting_a_cone_with_a_ray() {
         };
         let xs = shape.local_intersect(&r, 0);
         assert_eq!(xs.count(), 2);
-        assert_almost_eq!(xs[0].t, t0);
-        assert_almost_eq!(xs[1].t, t1);
+        // Looser tolerance: f32 rounding on these large t-values exceeds EPSILON.
+        assert_almost_eq!(xs[0].t, t0, 1e-3);
+        assert_almost_eq!(xs[1].t, t1, 1e-3);
     }
 }
 #[test]

@@ -253,8 +253,9 @@ fn a_ray_strikes_a_cylinder() {
         };
         let xs = cyl.local_intersect(&r, 0);
         assert_eq!(xs.count(), 2);
-        assert_almost_eq!(xs[0].t, t0);
-        assert_almost_eq!(xs[1].t, t1);
+        // Looser tolerance: f32 rounding on these t-values exceeds EPSILON.
+        assert_almost_eq!(xs[0].t, t0, 1e-3);
+        assert_almost_eq!(xs[1].t, t1, 1e-3);
     }
 }
 #[test]

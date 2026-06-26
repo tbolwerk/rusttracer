@@ -1,51 +1,63 @@
 #![feature(generic_const_exprs)]
-#![feature(f128)]
 #![allow(incomplete_features)]
-mod canvas;
 
-use canvas::*;
+// The renderer + math now live in the shared `raycore` crate (single source of
+// truth for CPU and, after Stage 3, the GPU shader). Re-export its modules so the
+// binary's existing `crate::<module>` / unqualified paths keep resolving exactly
+// as they did when these were local modules.
+pub use raycore::{
+    bounds, cones, csg, cubes, cylinders, groups, intersections, lights,
+    materials, matrices, patterns, planes, rays, shapes, spheres, texture_maps,
+    transformations, triangles, tuples, worlds,
+};
 
-mod bounds;
-mod groups;
-use groups::*;
-mod cones;
+// Reproduce the flat import surface the binary used before the split (only the
+// modules that were previously glob-imported).
 use cones::*;
-mod csg;
 use csg::*;
-mod cylinders;
-mod obj_parser;
 use cylinders::*;
-mod cubes;
-mod patterns;
+use groups::*;
+use lights::*;
+use materials::*;
+use matrices::*;
 use patterns::*;
-mod planes;
-mod shapes;
+use rays::*;
 use shapes::*;
-mod camera;
-use camera::*;
-mod worlds;
+use texture_maps::*;
+use transformations::*;
+use tuples::*;
 use worlds::*;
+
+// `assert_almost_eq!` lived in the core's `tuples` module and reached the
+// binary's camera/viewport tests through `use crate::tuples::*`. After the split
+// it is crate-internal to raycore, so redefine it here. Defined before
+// `mod camera/viewport` so textual macro scoping makes it visible inside them.
+#[cfg(test)]
+macro_rules! assert_almost_eq {
+    ($a: expr, $b: expr) => {
+        assert_almost_eq!($a, $b, 1e-5);
+    };
+    ($a: expr, $b: expr, $eps: expr) => {
+        assert!(
+            ($a - $b).abs() <= $eps,
+            "assert_almost_eq failed: {:?} != {:?}",
+            $a,
+            $b
+        );
+    };
+}
+
+// Host-only modules: framebuffer, render driver, interactive viewport, OBJ
+// loading and PPM/pixel output.
+mod canvas;
+use canvas::*;
 mod colors;
 use colors::*;
-mod materials;
-use materials::*;
-mod lights;
-use lights::*;
-mod intersections;
-mod rays;
-mod spheres;
-mod texture_maps;
-use texture_maps::*;
-mod triangles;
+mod obj_parser;
+mod camera;
+use camera::*;
 mod viewport;
 use viewport::{Scene, Viewport, DISP_H, DISP_W, MOVE_DEPTH, STILL_DEPTH};
-use rays::*;
-mod transformations;
-use transformations::*;
-mod matrices;
-use matrices::*;
-mod tuples;
-use tuples::*;
 
 use std::time::Instant;
 

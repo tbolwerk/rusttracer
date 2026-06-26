@@ -1,0 +1,13 @@
+[package]
+name = "raycore"
+version = "0.1.0"
+edition = "2021"
+
+# The shared ray-tracing core: f32 math + the renderer. Single source of truth
+# used by the CPU host (the `rusttracer` binary) and, after Stage 3, compiled to
+# SPIR-V by the rust-gpu shader crate. Kept dependency-light on purpose so it can
+# go `no_std` for the GPU target in Stage 2.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

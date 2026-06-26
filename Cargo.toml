@@ -1,3 +1,6 @@
+[workspace]
+members = ["raycore"]
+
 [package]
 name = "rusttracer"
 version = "0.1.0"
@@ -6,9 +9,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [profile.release]
 debug = true
+
 [dependencies]
 rayon = "1.9"
 minifb = "0.27"
+# The shared CPU/GPU ray-tracing core (math + renderer). Single source of truth.
+raycore = { path = "raycore" }
+
 [[bin]]
 name = "rusttracer"
 path = "main.rs"

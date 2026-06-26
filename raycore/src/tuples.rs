@@ -3,7 +3,7 @@ use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Neg;
 use std::ops::Sub;
-pub type Number = f64;
+pub type Number = f32;
 
 pub const EPSILON: Number = 1e-5;
 
