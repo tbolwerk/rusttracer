@@ -12,7 +12,7 @@ pub struct Material {
     pub diffuse: Number,
     pub specular: Number,
     pub shininess: Number,
-    pub pattern: Option<Pattern>,
+    pub pattern: Pattern,
     pub reflective: Number,
     pub transparency: Number,
     pub refractive_index: Number,
@@ -35,7 +35,7 @@ impl Material {
             diffuse,
             specular,
             shininess,
-            pattern: None,
+            pattern: Pattern::none(),
             reflective,
             transparency,
             refractive_index,
@@ -68,7 +68,7 @@ impl Material {
             diffuse: 0.0,
             specular: 1.0,
             shininess: 300.0,
-            pattern: None,
+            pattern: Pattern::none(),
             reflective: 0.1,
             transparency: 1.0,
             refractive_index: 1.5,
@@ -90,7 +90,7 @@ impl Material {
         self.shininess = shininess
     }
     pub const fn set_pattern(&mut self, pattern: Pattern) -> () {
-        self.pattern = Some(pattern)
+        self.pattern = pattern
     }
     pub const fn set_reflective(&mut self, reflective: Number) -> () {
         self.reflective = reflective
@@ -118,9 +118,10 @@ pub fn lightning(
     intensity: Number,
 ) -> Color {
     let material = object.get_material();
-    let color = match material.pattern {
-        None => material.color,
-        Some(ref pattern) => pattern.pattern_at_shape(object, point),
+    let color = if material.pattern.kind != 0 {
+        material.pattern.pattern_at_shape(object, point)
+    } else {
+        material.color
     };
     let effective_color = color * light.intensity();
     let ambient = effective_color * material.ambient;

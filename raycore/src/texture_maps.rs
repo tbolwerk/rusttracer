@@ -6,38 +6,57 @@
 use crate::transformations::PI;
 use crate::tuples::*;
 
-// A pattern defined in 2D (u, v) space, independent of any 3D shape.
-#[derive(PartialEq, Debug, Clone)]
-pub enum UvPattern {
-    // A checkerboard of `width` x `height` cells across the 0..1 UV square.
-    Checkers {
-        width: Number,
-        height: Number,
-        a: Color,
-        b: Color,
-    },
-    // A center color with a distinct color in each corner, used to verify that a
-    // cube face is oriented correctly.
-    AlignCheck {
-        main: Color,
-        ul: Color,
-        ur: Color,
-        bl: Color,
-        br: Color,
-    },
+const fn black() -> Color {
+    Color {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+    }
 }
 
-impl UvPattern {
-    pub fn checkers(width: Number, height: Number, a: Color, b: Color) -> Self {
-        UvPattern::Checkers {
+// A pattern defined in 2D (u, v) space, independent of any 3D shape.
+// Flat tagged struct for rust-gpu/SPIR-V compatibility:
+//   kind 0 = checkers (uses width/height/a/b)
+//   kind 1 = align_check (uses main/ul/ur/bl/br)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UvFace {
+    pub kind: u32,
+    pub width: Number,
+    pub height: Number,
+    pub a: Color,
+    pub b: Color,
+    pub main: Color,
+    pub ul: Color,
+    pub ur: Color,
+    pub bl: Color,
+    pub br: Color,
+}
+
+impl UvFace {
+    // A checkerboard of `width` x `height` cells across the 0..1 UV square.
+    pub const fn checkers(width: Number, height: Number, a: Color, b: Color) -> Self {
+        UvFace {
+            kind: 0,
             width,
             height,
             a,
             b,
+            main: black(),
+            ul: black(),
+            ur: black(),
+            bl: black(),
+            br: black(),
         }
     }
+    // A center color with a distinct color in each corner, used to verify that a
+    // cube face is oriented correctly.
     pub fn align_check(main: Color, ul: Color, ur: Color, bl: Color, br: Color) -> Self {
-        UvPattern::AlignCheck {
+        UvFace {
+            kind: 1,
+            width: 0.0,
+            height: 0.0,
+            a: black(),
+            b: black(),
             main,
             ul,
             ur,
@@ -46,65 +65,50 @@ impl UvPattern {
         }
     }
     pub fn uv_pattern_at(&self, u: Number, v: Number) -> Color {
-        match self {
-            UvPattern::Checkers {
-                width,
-                height,
-                a,
-                b,
-            } => {
-                let u2 = (u * width).floor();
-                let v2 = (v * height).floor();
+        match self.kind {
+            0 => {
+                let u2 = (u * self.width).floor();
+                let v2 = (v * self.height).floor();
                 if (u2 + v2).rem_euclid(2.0) == 0.0 {
-                    *a
+                    self.a
                 } else {
-                    *b
+                    self.b
                 }
             }
-            UvPattern::AlignCheck {
-                main,
-                ul,
-                ur,
-                bl,
-                br,
-            } => {
+            _ => {
                 // Corners get their own color; everything else is `main`.
                 if v > 0.8 {
                     if u < 0.2 {
-                        return *ul;
+                        return self.ul;
                     }
                     if u > 0.8 {
-                        return *ur;
+                        return self.ur;
                     }
                 } else if v < 0.2 {
                     if u < 0.2 {
-                        return *bl;
+                        return self.bl;
                     }
                     if u > 0.8 {
-                        return *br;
+                        return self.br;
                     }
                 }
-                *main
+                self.main
             }
         }
     }
 }
 
-// How a 3D point in pattern space is reduced to (u, v).
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum UvMapping {
-    Spherical,
-    Planar,
-    Cylindrical,
-}
+// How a 3D point in pattern space is reduced to (u, v), as a u32 tag:
+//   0 = spherical, 1 = planar, 2 = cylindrical.
+pub const MAPPING_SPHERICAL: u32 = 0;
+pub const MAPPING_PLANAR: u32 = 1;
+pub const MAPPING_CYLINDRICAL: u32 = 2;
 
-impl UvMapping {
-    pub fn map(&self, p: Point) -> (Number, Number) {
-        match self {
-            UvMapping::Spherical => spherical_map(p),
-            UvMapping::Planar => planar_map(p),
-            UvMapping::Cylindrical => cylindrical_map(p),
-        }
+pub fn uv_map(p: Point, mapping: u32) -> (Number, Number) {
+    match mapping {
+        MAPPING_PLANAR => planar_map(p),
+        MAPPING_CYLINDRICAL => cylindrical_map(p),
+        _ => spherical_map(p),
     }
 }
 
@@ -195,7 +199,7 @@ mod tests {
 
     #[test]
     fn checker_pattern_in_2d() {
-        let checkers = UvPattern::checkers(2.0, 2.0, black(), white());
+        let checkers = UvFace::checkers(2.0, 2.0, black(), white());
         let cases = [
             (0.0, 0.0, black()),
             (0.5, 0.0, white()),
@@ -274,7 +278,7 @@ mod tests {
         let ur = Color { r: 1.0, g: 1.0, b: 0.0 };
         let bl = Color { r: 0.0, g: 1.0, b: 0.0 };
         let br = Color { r: 0.0, g: 1.0, b: 1.0 };
-        let pattern = UvPattern::align_check(main, ul, ur, bl, br);
+        let pattern = UvFace::align_check(main, ul, ur, bl, br);
         let cases = [
             (0.5, 0.5, main),
             (0.1, 0.9, ul),

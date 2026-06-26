@@ -332,7 +332,7 @@ fn build_bonus_world() -> World {
     let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     floor_material.set_pattern(Pattern::texture_map(
-        UvPattern::checkers(
+        UvFace::checkers(
             2.0,
             2.0,
             Color {
@@ -346,7 +346,7 @@ fn build_bonus_world() -> World {
                 b: 0.45,
             },
         ),
-        UvMapping::Planar,
+        MAPPING_PLANAR,
     ));
     floor_material.set_specular(0.0);
     floor.set_material(floor_material);
@@ -358,7 +358,7 @@ fn build_bonus_world() -> World {
     globe.set_transform(translation(0.0, 1.0, 0.0));
     let mut globe_material = Material::default();
     globe_material.set_pattern(Pattern::texture_map(
-        UvPattern::checkers(
+        UvFace::checkers(
             20.0,
             10.0,
             Color {
@@ -372,7 +372,7 @@ fn build_bonus_world() -> World {
                 b: 1.0,
             },
         ),
-        UvMapping::Spherical,
+        MAPPING_SPHERICAL,
     ));
     globe_material.set_diffuse(0.8);
     globe_material.set_specular(0.3);

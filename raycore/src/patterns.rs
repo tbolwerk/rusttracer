@@ -1,252 +1,182 @@
 use crate::{
-    matrices::Matrix,
-    shapes::{HasTransform, Primitive, TransformData},
+    matrices::{inverse, Matrix},
+    shapes::{HasTransform, Primitive},
     texture_maps::*,
     tuples::*,
 };
 
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct CheckerPattern {
-    a: Color,
-    b: Color,
-    transform: TransformData,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct RingPattern {
-    a: Color,
-    b: Color,
-    transform: TransformData,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct GradientPattern {
-    a: Color,
-    b: Color,
-    transform: TransformData,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct StripePattern {
-    a: Color,
-    b: Color,
-    transform: TransformData,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct TestPattern {
-    transform: TransformData,
-}
-
-// A UV pattern projected onto a shape through a single mapping (spherical,
-// planar, or cylindrical).
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct TextureMapPattern {
-    uv: UvPattern,
-    mapping: UvMapping,
-    transform: TransformData,
-}
-
-// Six UV patterns, one per cube face, selected per point by `face_from_point`.
-// Faces are stored in the order left, front, right, back, up, down.
-#[derive(PartialEq, Debug, Clone)]
-pub(crate) struct CubeMapPattern {
-    faces: [UvPattern; 6],
-    transform: TransformData,
-}
-
-impl TestPattern {
-    fn color(&self, point: Point) -> Color {
-        Color {
-            r: point.x(),
-            g: point.y(),
-            b: point.z(),
-        }
+const fn black() -> Color {
+    Color {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum Pattern {
-    Test(TestPattern),
-    Stripe(StripePattern),
-    Gradient(GradientPattern),
-    Ring(RingPattern),
-    Checker(CheckerPattern),
-    Texture(TextureMapPattern),
-    Cube(CubeMapPattern),
+// Flat tagged struct for rust-gpu/SPIR-V compatibility. `kind` selects which
+// fields are meaningful:
+//   0 = NONE (no pattern)
+//   1 = stripe   (a, b)
+//   2 = gradient (a, b)
+//   3 = ring     (a, b)
+//   4 = checker  (a, b)
+//   5 = texture  (uv + mapping)
+//   6 = cube     (faces[6])
+//   7 = test
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pattern {
+    pub kind: u32,
+    pub a: Color,
+    pub b: Color,
+    pub transform: Matrix<4, 4>,
+    pub inverse: Matrix<4, 4>,
+    pub uv: UvFace,
+    pub mapping: u32,
+    pub faces: [UvFace; 6],
 }
 
 impl HasTransform for Pattern {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> () {
-        match self {
-            Pattern::Test(test_pattern) => test_pattern.transform.set_transform(transform),
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.transform.set_transform(transform),
-            Pattern::Gradient(gradient_pattern) => {
-                gradient_pattern.transform.set_transform(transform)
-            }
-            Pattern::Ring(ring_pattern) => ring_pattern.transform.set_transform(transform),
-            Pattern::Checker(checker_pattern) => checker_pattern.transform.set_transform(transform),
-            Pattern::Texture(texture) => texture.transform.set_transform(transform),
-            Pattern::Cube(cube) => cube.transform.set_transform(transform),
-        }
+        self.transform = transform;
+        self.inverse = inverse(&transform).unwrap_or(Matrix::identity());
     }
     fn get_transform(&self) -> Matrix<4, 4> {
-        match self {
-            Pattern::Test(test_pattern) => test_pattern.transform.get_transform(),
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.transform.get_transform(),
-            Pattern::Gradient(gradient_pattern) => gradient_pattern.transform.get_transform(),
-            Pattern::Ring(ring_pattern) => ring_pattern.transform.get_transform(),
-            Pattern::Checker(checker_pattern) => checker_pattern.transform.get_transform(),
-            Pattern::Texture(texture) => texture.transform.get_transform(),
-            Pattern::Cube(cube) => cube.transform.get_transform(),
-        }
+        self.transform
     }
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        match self {
-            Pattern::Test(test_pattern) => test_pattern.transform.get_inverse_transform(),
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.transform.get_inverse_transform(),
-            Pattern::Gradient(gradient_pattern) => {
-                gradient_pattern.transform.get_inverse_transform()
-            }
-            Pattern::Ring(ring_pattern) => ring_pattern.transform.get_inverse_transform(),
-            Pattern::Checker(checker_pattern) => checker_pattern.transform.get_inverse_transform(),
-            Pattern::Texture(texture) => texture.transform.get_inverse_transform(),
-            Pattern::Cube(cube) => cube.transform.get_inverse_transform(),
-        }
-    }
-}
-
-impl CheckerPattern {
-    fn new(a: Color, b: Color) -> Self {
-        Self {
-            a,
-            b,
-            transform: TransformData::new(Matrix::identity(), None),
-        }
-    }
-    fn color(&self, point: Point) -> Color {
-        // `stable_floor` absorbs the ~1e-15 error a plane's hit point carries
-        // (see StableFloor); `rem_euclid` keeps the parity non-negative.
-        let parity = point.x().stable_floor() + point.y().stable_floor() + point.z().stable_floor();
-        if parity.rem_euclid(2.0) == 0.0 {
-            self.a
-        } else {
-            self.b
-        }
-    }
-}
-
-impl RingPattern {
-    fn new(a: Color, b: Color) -> Self {
-        Self {
-            a,
-            b,
-            transform: TransformData::new(Matrix::identity(), None),
-        }
-    }
-    fn color(&self, point: Point) -> Color {
-        if (point.x().powi(2) + point.z().powi(2)).sqrt().floor() % 2.0 == 0.0 {
-            return self.a;
-        }
-        self.b
-    }
-}
-
-impl GradientPattern {
-    fn new(a: Color, b: Color) -> Self {
-        Self {
-            a,
-            b,
-            transform: TransformData::new(Matrix::identity(), None),
-        }
-    }
-    fn color(&self, point: Point) -> Color {
-        let distance = self.b - self.a;
-        let fraction = point.x - point.x.floor();
-
-        self.a + distance * fraction
-    }
-}
-
-impl StripePattern {
-    fn new(a: Color, b: Color) -> Self {
-        Self {
-            a,
-            b,
-            transform: TransformData::new(Matrix::identity(), None),
-        }
-    }
-    fn color(&self, point: Point) -> Color {
-        if point.x().floor() % 2.0 == 0.0 {
-            return self.a;
-        }
-        self.b
+        Some(self.inverse)
     }
 }
 
 impl Pattern {
+    pub const fn none() -> Self {
+        let face = UvFace::checkers(0.0, 0.0, black(), black());
+        Pattern {
+            kind: 0,
+            a: black(),
+            b: black(),
+            transform: Matrix::identity(),
+            inverse: Matrix::identity(),
+            uv: face,
+            mapping: MAPPING_SPHERICAL,
+            faces: [face; 6],
+        }
+    }
+    fn base() -> Self {
+        Pattern::none()
+    }
     pub fn test_pattern() -> Self {
-        Pattern::Test(TestPattern {
-            transform: TransformData::new(Matrix::identity(), None),
-        })
+        Pattern {
+            kind: 7,
+            ..Pattern::base()
+        }
     }
     pub fn stripe_pattern(a: Color, b: Color) -> Self {
-        Pattern::Stripe(StripePattern::new(a, b))
+        Pattern {
+            kind: 1,
+            a,
+            b,
+            ..Pattern::base()
+        }
     }
     pub fn gradient_pattern(a: Color, b: Color) -> Self {
-        Pattern::Gradient(GradientPattern::new(a, b))
+        Pattern {
+            kind: 2,
+            a,
+            b,
+            ..Pattern::base()
+        }
     }
     pub fn ring_pattern(a: Color, b: Color) -> Self {
-        Pattern::Ring(RingPattern::new(a, b))
+        Pattern {
+            kind: 3,
+            a,
+            b,
+            ..Pattern::base()
+        }
     }
     pub fn checker_pattern(a: Color, b: Color) -> Self {
-        Pattern::Checker(CheckerPattern::new(a, b))
+        Pattern {
+            kind: 4,
+            a,
+            b,
+            ..Pattern::base()
+        }
     }
     // A UV pattern projected through `mapping` (spherical/planar/cylindrical).
-    pub fn texture_map(uv: UvPattern, mapping: UvMapping) -> Self {
-        Pattern::Texture(TextureMapPattern {
+    pub fn texture_map(uv: UvFace, mapping: u32) -> Self {
+        Pattern {
+            kind: 5,
             uv,
             mapping,
-            transform: TransformData::new(Matrix::identity(), None),
-        })
+            ..Pattern::base()
+        }
     }
     // Six UV patterns, one per cube face (left, front, right, back, up, down).
-    pub fn cube_map(
-        left: UvPattern,
-        front: UvPattern,
-        right: UvPattern,
-        back: UvPattern,
-        up: UvPattern,
-        down: UvPattern,
-    ) -> Self {
-        Pattern::Cube(CubeMapPattern {
-            faces: [left, front, right, back, up, down],
-            transform: TransformData::new(Matrix::identity(), None),
-        })
+    pub fn cube_map(faces: [UvFace; 6]) -> Self {
+        Pattern {
+            kind: 6,
+            faces,
+            ..Pattern::base()
+        }
     }
     pub fn pattern_at_shape(&self, object: &Primitive, world_point: Point) -> Color {
         let object_point = match object.get_inverse_transform() {
             None => world_point,
             Some(inverse_transform) => inverse_transform * world_point,
         };
-        let pattern_point = match self.get_inverse_transform() {
-            None => object_point,
-            Some(inverse_transform) => inverse_transform * object_point,
-        };
+        let pattern_point = self.inverse * object_point;
         self.pattern_at(pattern_point)
     }
     pub fn pattern_at(&self, point: Point) -> Color {
-        match self {
-            Pattern::Test(test_pattern) => test_pattern.color(point),
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.color(point),
-            Pattern::Gradient(gradient_pattern) => gradient_pattern.color(point),
-            Pattern::Ring(ring_pattern) => ring_pattern.color(point),
-            Pattern::Checker(checker_pattern) => checker_pattern.color(point),
-            Pattern::Texture(texture) => {
-                let (u, v) = texture.mapping.map(point);
-                texture.uv.uv_pattern_at(u, v)
+        match self.kind {
+            7 => Color {
+                r: point.x(),
+                g: point.y(),
+                b: point.z(),
+            },
+            1 => {
+                // stripe
+                if point.x().floor() % 2.0 == 0.0 {
+                    self.a
+                } else {
+                    self.b
+                }
             }
-            Pattern::Cube(cube) => {
+            2 => {
+                // gradient
+                let distance = self.b - self.a;
+                let fraction = point.x - point.x.floor();
+                self.a + distance * fraction
+            }
+            3 => {
+                // ring
+                if (point.x().powi(2) + point.z().powi(2)).sqrt().floor() % 2.0 == 0.0 {
+                    self.a
+                } else {
+                    self.b
+                }
+            }
+            4 => {
+                // checker
+                // `stable_floor` absorbs the ~1e-15 error a plane's hit point
+                // carries (see StableFloor); `rem_euclid` keeps parity non-negative.
+                let parity = point.x().stable_floor()
+                    + point.y().stable_floor()
+                    + point.z().stable_floor();
+                if parity.rem_euclid(2.0) == 0.0 {
+                    self.a
+                } else {
+                    self.b
+                }
+            }
+            5 => {
+                // texture map
+                let (u, v) = uv_map(point, self.mapping);
+                self.uv.uv_pattern_at(u, v)
+            }
+            6 => {
+                // cube map
                 let face = face_from_point(point);
                 let index = match face {
                     CubeFace::Left => 0,
@@ -257,26 +187,9 @@ impl Pattern {
                     CubeFace::Down => 5,
                 };
                 let (u, v) = cube_uv(face, point);
-                cube.faces[index].uv_pattern_at(u, v)
+                self.faces[index].uv_pattern_at(u, v)
             }
-        }
-    }
-    fn a(&self) -> Color {
-        match self {
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.a,
-            Pattern::Gradient(gradient_pattern) => gradient_pattern.a,
-            Pattern::Ring(ring_pattern) => ring_pattern.a,
-            Pattern::Checker(checker_pattern) => checker_pattern.a,
-            _ => panic!("No 'a' color for {:?}", self),
-        }
-    }
-    fn b(&self) -> Color {
-        match self {
-            Pattern::Stripe(stripe_pattern) => stripe_pattern.b,
-            Pattern::Gradient(gradient_pattern) => gradient_pattern.b,
-            Pattern::Ring(ring_pattern) => ring_pattern.b,
-            Pattern::Checker(checker_pattern) => checker_pattern.b,
-            _ => panic!("No 'b' color for {:?}", self),
+            _ => self.a,
         }
     }
 }
@@ -302,8 +215,8 @@ mod tests {
     fn creating_a_striped_pattern() {
         let (black, white) = background();
         let pattern = Pattern::stripe_pattern(white, black);
-        assert_eq!(pattern.a(), white);
-        assert_eq!(pattern.b(), black);
+        assert_eq!(pattern.a, white);
+        assert_eq!(pattern.b, black);
     }
     #[test]
     fn a_stripe_pattern_is_constant_in_y() {
@@ -721,8 +634,8 @@ mod tests {
     fn checkers_applied_through_a_spherical_texture_map() {
         let (black, white) = background();
         let pattern = Pattern::texture_map(
-            UvPattern::checkers(16.0, 8.0, black, white),
-            UvMapping::Spherical,
+            UvFace::checkers(16.0, 8.0, black, white),
+            MAPPING_SPHERICAL,
         );
         // (point on the unit sphere -> expected color), from the book.
         let cases = [
@@ -752,14 +665,14 @@ mod tests {
         let blue = Color { r: 0.0, g: 0.0, b: 1.0 };
         let purple = Color { r: 1.0, g: 0.0, b: 1.0 };
         let white = Color { r: 1.0, g: 1.0, b: 1.0 };
-        let pattern = Pattern::cube_map(
-            UvPattern::align_check(yellow, cyan, red, blue, brown), // left
-            UvPattern::align_check(cyan, red, yellow, brown, green), // front
-            UvPattern::align_check(red, yellow, purple, green, white), // right
-            UvPattern::align_check(green, purple, cyan, white, blue), // back
-            UvPattern::align_check(brown, cyan, purple, red, yellow), // up
-            UvPattern::align_check(purple, brown, green, blue, white), // down
-        );
+        let pattern = Pattern::cube_map([
+            UvFace::align_check(yellow, cyan, red, blue, brown), // left
+            UvFace::align_check(cyan, red, yellow, brown, green), // front
+            UvFace::align_check(red, yellow, purple, green, white), // right
+            UvFace::align_check(green, purple, cyan, white, blue), // back
+            UvFace::align_check(brown, cyan, purple, red, yellow), // up
+            UvFace::align_check(purple, brown, green, blue, white), // down
+        ]);
         let cases = [
             // Left
             (Point { x: -1.0, y: 0.0, z: 0.0 }, yellow),
