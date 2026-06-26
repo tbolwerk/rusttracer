@@ -18,12 +18,16 @@ fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Inters
         (x.powf(2.0) + z.powf(2.0)) <= 1.0 + EPSILON
     }
 
+    // Index loop, not `for bound in [..]`: rust-gpu can't lower array IntoIter.
     let bounds = [prim.minimum, prim.maximum];
-    for bound in bounds {
+    let mut bi = 0;
+    while bi < 2 {
+        let bound = bounds[bi];
         let t = (bound - ray.origin.y()) / ray.direction.y();
         if check_caps(ray, t) {
             xs.push(Intersection::new(t, object_id));
         }
+        bi += 1;
     }
 }
 
@@ -52,11 +56,15 @@ pub fn cylinder_intersect(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mu
         (t0, t1) = (t1, t0);
     }
 
-    for t in [t0, t1] {
+    let ts = [t0, t1];
+    let mut ti = 0;
+    while ti < 2 {
+        let t = ts[ti];
         let y = ray.origin.y() + t * ray.direction.y();
         if prim.minimum < y && y < prim.maximum {
             xs.push(Intersection::new(t, object_id));
         }
+        ti += 1;
     }
 
     intersect_caps(prim, ray, object_id, xs);
