@@ -7,7 +7,7 @@ use crate::tuples::*;
 // the cylinder. At each y the cone's radius equals |y|, which is why the cap
 // radius test uses `bound.abs()`.
 fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
-    if !prim.closed || almost_eq(ray.direction.y(), 0.0) {
+    if prim.closed == 0 || almost_eq(ray.direction.y(), 0.0) {
         return;
     }
 
@@ -252,7 +252,7 @@ fn intersecting_a_cones_end_caps() {
     let mut shape = Primitive::cone();
     shape.minimum = -0.5;
     shape.maximum = 0.5;
-    shape.closed = true;
+    shape.closed = 1;
     struct Example {
         origin: Point,
         direction: Vector,

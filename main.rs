@@ -273,7 +273,7 @@ fn build_csg_world() -> World {
         let mut __c = Primitive::cylinder();
         __c.minimum = -1.5;
         __c.maximum = 1.5;
-        __c.closed = false;
+        __c.closed = 0;
         __c
     };
         c.set_transform(scaling(0.5, 1.0, 0.5).then(transform));
@@ -993,7 +993,7 @@ fn build_hexagon_world() -> World {
         let mut __c = Primitive::cylinder();
         __c.minimum = 0.0;
         __c.maximum = 1.0;
-        __c.closed = false;
+        __c.closed = 0;
         __c
     };
         e.set_transform(
@@ -1182,7 +1182,7 @@ fn build_capitol_world() -> World {
         let mut __c = Primitive::cylinder();
         __c.minimum = 0.0;
         __c.maximum = 1.0;
-        __c.closed = true;
+        __c.closed = 1;
         __c
     };
     drum.set_material(marble.clone());
@@ -1200,7 +1200,7 @@ fn build_capitol_world() -> World {
         let mut __c = Primitive::cylinder();
         __c.minimum = 0.0;
         __c.maximum = 1.0;
-        __c.closed = true;
+        __c.closed = 1;
         __c
     };
     lantern.set_material(marble.clone());
@@ -1213,7 +1213,7 @@ fn build_capitol_world() -> World {
         let mut __c = Primitive::cone();
         __c.minimum = -1.0;
         __c.maximum = 0.0;
-        __c.closed = true;
+        __c.closed = 1;
         __c
     };
     let mut statue_material = Material::default();
@@ -1238,7 +1238,7 @@ fn build_capitol_world() -> World {
         let mut __c = Primitive::cylinder();
         __c.minimum = 0.0;
         __c.maximum = 1.0;
-        __c.closed = true;
+        __c.closed = 1;
         __c
     };
         column.set_material(marble.clone());

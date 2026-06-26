@@ -46,7 +46,7 @@ pub struct Primitive {
     // cylinder / cone
     pub minimum: Number,
     pub maximum: Number,
-    pub closed: bool,
+    pub closed: u32,
     // triangle / smooth triangle
     pub p1: Point,
     pub p2: Point,
@@ -73,7 +73,7 @@ pub struct Primitive {
     // the old `Option`: when false `bounds` is meaningless. Use `bounds()` /
     // `set_bounds()` instead of touching the fields directly.
     pub bounds: BoundingBox,
-    pub has_bounds: bool,
+    pub has_bounds: u32,
 }
 
 // Sentinel for `left`/`right`: no child attached. (CSG nodes set both; every
@@ -132,7 +132,7 @@ impl Primitive {
             material: Material::default(),
             minimum: 0.0,
             maximum: 0.0,
-            closed: false,
+            closed: 0,
             p1: origin,
             p2: origin,
             p3: origin,
@@ -148,7 +148,7 @@ impl Primitive {
             left: NO_CHILD,
             right: NO_CHILD,
             bounds: BoundingBox::empty(),
-            has_bounds: false,
+            has_bounds: 0,
         }
     }
     pub fn sphere() -> Primitive {
@@ -161,14 +161,14 @@ impl Primitive {
         let mut p = Self::base(ShapeKind::Cylinder);
         p.minimum = Number::MIN;
         p.maximum = Number::MAX;
-        p.closed = false;
+        p.closed = 0;
         p
     }
     pub fn cone() -> Primitive {
         let mut p = Self::base(ShapeKind::Cone);
         p.minimum = Number::MIN;
         p.maximum = Number::MAX;
-        p.closed = false;
+        p.closed = 0;
         p
     }
     pub fn glass_sphere() -> Primitive {
@@ -256,7 +256,7 @@ impl Primitive {
     }
     // Cached group/CSG bounds, as Option over the `has_bounds` sentinel.
     pub fn bounds(&self) -> Option<&BoundingBox> {
-        if self.has_bounds {
+        if self.has_bounds != 0 {
             Some(&self.bounds)
         } else {
             None
@@ -264,7 +264,7 @@ impl Primitive {
     }
     pub fn set_bounds(&mut self, bounds: BoundingBox) {
         self.bounds = bounds;
-        self.has_bounds = true;
+        self.has_bounds = 1;
     }
     // The shape's normal in its own object space. Lifting it into world space
     // (accounting for any enclosing groups) is done by `World::normal_at`.

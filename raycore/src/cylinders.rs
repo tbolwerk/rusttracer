@@ -7,7 +7,7 @@ use crate::tuples::*;
 // capped at each end (`closed`). When closed, the caps add up to two more
 // intersections where the ray crosses each end disc within the unit radius.
 fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
-    if !prim.closed || almost_eq(ray.direction.y(), 0.0) {
+    if prim.closed == 0 || almost_eq(ray.direction.y(), 0.0) {
         return;
     }
 
@@ -394,14 +394,14 @@ fn intersecting_a_contrained_cylinder() {
 #[test]
 fn the_default_closed_value_for_a_cylinder() {
     let cyl = Primitive::cylinder();
-    assert_eq!(cyl.closed, false);
+    assert_eq!(cyl.closed, 0);
 }
 #[test]
 fn intersecting_the_caps_of_a_closed_cylinder() {
     let mut cyl = Primitive::cylinder();
     cyl.minimum = 1.0;
     cyl.maximum = 2.0;
-    cyl.closed = true;
+    cyl.closed = 1;
     struct Example {
         point: Point,
         direction: Vector,
@@ -512,7 +512,7 @@ fn the_normal_vector_on_a_cylinders_end_caps() {
     let mut cyl = Primitive::cylinder();
     cyl.minimum = 1.0;
     cyl.maximum = 2.0;
-    cyl.closed = true;
+    cyl.closed = 1;
     struct Example {
         point: Point,
         normal: Vector,
