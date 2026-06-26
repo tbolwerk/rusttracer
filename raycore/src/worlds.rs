@@ -16,6 +16,79 @@ use crate::shapes::*;
 use crate::transformations::*;
 use crate::tuples::*;
 
+// Bounded scratch sizes for the iterative (recursion-free, GPU-compatible)
+// traversal and shading. The traversal stack is height-bounded (it iterates a
+// group's children via a cursor frame, not by pushing all of them), so this only
+// needs to cover the deepest group/CSG nesting plus a small constant.
+const MAX_TRAVERSAL_STACK: usize = 64;
+// Longest parent chain a normal/point transform walks (scene hierarchy depth).
+const MAX_TREE_DEPTH: usize = 64;
+// Shading fans out to <= 2 rays (reflect + refract) per hit, depth-limited by
+// `remaining` (default 5), so 2^(5+1) is a safe ceiling.
+const MAX_SHADE_STACK: usize = 64;
+
+const ZERO_RAY: Ray = Ray {
+    origin: Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    },
+    direction: Vector {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    },
+};
+
+// One frame of the explicit traversal stack. `tag` selects how the frame is
+// interpreted; the spare fields carry whatever that state needs (a ray in node/
+// group/csg-right frames, a child cursor for groups, a buffer start index for
+// csg frames).
+const F_NODE: u8 = 0; // enter object `id` with `ray`; dispatch on kind
+const F_GROUP: u8 = 1; // resume group `id` (local `ray`) at child `next`
+const F_CSG_RIGHT: u8 = 2; // left done; enter csg `id`'s right child, then filter
+const F_CSG_FILTER: u8 = 3; // filter the buffer region [`next`..end) for csg `id`
+
+#[derive(Clone, Copy)]
+struct Frame {
+    tag: u8,
+    id: usize,
+    ray: Ray,
+    next: usize,
+}
+impl Default for Frame {
+    fn default() -> Self {
+        Frame {
+            tag: F_NODE,
+            id: 0,
+            ray: ZERO_RAY,
+            next: 0,
+        }
+    }
+}
+
+// One pending shading ray in the iterative `color_at`: its contribution is
+// `weight * surface_at(hit)`, and it may spawn weighted reflect/refract children.
+#[derive(Clone, Copy)]
+struct ShadeJob {
+    ray: Ray,
+    remaining: usize,
+    weight: Color,
+}
+impl Default for ShadeJob {
+    fn default() -> Self {
+        ShadeJob {
+            ray: ZERO_RAY,
+            remaining: 0,
+            weight: Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     pub objects: Vec<Primitive>,
@@ -52,73 +125,190 @@ impl World {
     // the primitive's own `Primitive::intersect`, which applies the leaf's
     // transform. Transforms therefore compose down the hierarchy exactly as in
     // the book's Group::intersect.
+    // Intersect the subtree rooted at `id` with `ray`, returning its hits (a
+    // group's combined, a CSG's filtered). Iterative (no recursion) so it can run
+    // on the GPU: an explicit stack of `Frame`s does a depth-first walk, moving
+    // the ray into each group/CSG's space, culling against cached bounds, and
+    // running the CSG surface filter as a post-order step over the buffer region
+    // its subtree produced. The group cursor frame keeps the stack height-bounded
+    // regardless of how many children a group has.
     pub fn intersect_object(&self, id: usize, ray: &Ray) -> Intersections {
-        let object = &self.objects[id];
-        match object.kind {
-            ShapeKind::Group => {
-                let local_ray = match object.get_inverse_transform() {
-                    None => ray.clone(),
-                    Some(inverse) => ray.transform(inverse),
-                };
-                // Bounding-box cull: if the ray (in group space) misses the
-                // group's box, none of its children can be hit, so skip them
-                // all. `bounds` is None until `compute_bounds` runs, in which
-                // case we fall through and test every child as before.
-                if self.use_bounds {
-                    if let Some(bounds) = &object.bounds {
-                        if !bounds.intersects(&local_ray) {
-                            return Intersections::empty();
+        let mut out = Intersections::empty();
+        let mut stack = [Frame::default(); MAX_TRAVERSAL_STACK];
+        let mut sp = 0usize;
+        stack[sp] = Frame {
+            tag: F_NODE,
+            id,
+            ray: *ray,
+            next: 0,
+        };
+        sp += 1;
+
+        while sp > 0 {
+            sp -= 1;
+            let f = stack[sp];
+            match f.tag {
+                F_NODE => {
+                    let object = &self.objects[f.id];
+                    match object.kind {
+                        ShapeKind::Group => {
+                            let local_ray = match object.get_inverse_transform() {
+                                None => f.ray,
+                                Some(inverse) => f.ray.transform(inverse),
+                            };
+                            // Cull against the cached box; miss => skip the whole
+                            // group. `bounds` is None until `compute_bounds` runs.
+                            if self.use_bounds {
+                                if let Some(bounds) = &object.bounds {
+                                    if !bounds.intersects(&local_ray) {
+                                        continue;
+                                    }
+                                }
+                            }
+                            stack[sp] = Frame {
+                                tag: F_GROUP,
+                                id: f.id,
+                                ray: local_ray,
+                                next: 0,
+                            };
+                            sp += 1;
                         }
+                        ShapeKind::Csg => {
+                            let local_ray = match object.get_inverse_transform() {
+                                None => f.ray,
+                                Some(inverse) => f.ray.transform(inverse),
+                            };
+                            if self.use_bounds {
+                                if let Some(bounds) = &object.bounds {
+                                    if !bounds.intersects(&local_ray) {
+                                        continue;
+                                    }
+                                }
+                            }
+                            let start = out.len;
+                            // LIFO: enter left first, then (csg-right -> right ->
+                            // filter). Children append into [start..], filtered
+                            // once both are done.
+                            stack[sp] = Frame {
+                                tag: F_CSG_RIGHT,
+                                id: f.id,
+                                ray: local_ray,
+                                next: start,
+                            };
+                            sp += 1;
+                            stack[sp] = Frame {
+                                tag: F_NODE,
+                                id: object.left.unwrap(),
+                                ray: local_ray,
+                                next: 0,
+                            };
+                            sp += 1;
+                        }
+                        // Leaf: it applies its own transform internally.
+                        _ => object.intersect_into(&f.ray, f.id, &mut out),
                     }
                 }
-                let mut xs = Intersections::empty();
-                for &child in &object.children {
-                    xs.extend(&self.intersect_object(child, &local_ray));
-                }
-                xs
-            }
-            ShapeKind::Csg => {
-                let local_ray = match object.get_inverse_transform() {
-                    None => ray.clone(),
-                    Some(inverse) => ray.transform(inverse),
-                };
-                // Same bounding-box cull as a group: miss the box, skip both
-                // children and the filtering entirely.
-                if self.use_bounds {
-                    if let Some(bounds) = &object.bounds {
-                        if !bounds.intersects(&local_ray) {
-                            return Intersections::empty();
-                        }
+                F_GROUP => {
+                    let object = &self.objects[f.id];
+                    if f.next < object.children.len() {
+                        let child = object.children[f.next];
+                        stack[sp] = Frame {
+                            tag: F_GROUP,
+                            id: f.id,
+                            ray: f.ray,
+                            next: f.next + 1,
+                        };
+                        sp += 1;
+                        stack[sp] = Frame {
+                            tag: F_NODE,
+                            id: child,
+                            ray: f.ray,
+                            next: 0,
+                        };
+                        sp += 1;
                     }
                 }
-                // Intersect both children, then keep only the hits the operation
-                // allows. `extend` re-sorts, so the combined list is in t-order,
-                // which `filter_intersections` relies on.
-                let mut xs = self.intersect_object(object.left.unwrap(), &local_ray);
-                xs.extend(&self.intersect_object(object.right.unwrap(), &local_ray));
-                self.filter_intersections(id, xs)
+                F_CSG_RIGHT => {
+                    let object = &self.objects[f.id];
+                    // Left subtree is fully in the buffer now. Schedule the filter
+                    // (runs after right), then enter the right child.
+                    stack[sp] = Frame {
+                        tag: F_CSG_FILTER,
+                        id: f.id,
+                        ray: f.ray,
+                        next: f.next,
+                    };
+                    sp += 1;
+                    stack[sp] = Frame {
+                        tag: F_NODE,
+                        id: object.right.unwrap(),
+                        ray: f.ray,
+                        next: 0,
+                    };
+                    sp += 1;
+                }
+                _ => self.filter_region(f.id, &mut out, f.next),
             }
-            _ => object.intersect(ray, id),
+            debug_assert!(sp <= MAX_TRAVERSAL_STACK, "traversal stack overflow");
         }
+        out
     }
-    // Whether the subtree rooted at `node` contains the leaf `object`. A CSG uses
-    // this to decide whether a hit belongs to its left or right child, even when
-    // that child is itself a group or CSG. Mirrors the book's `includes`.
-    pub fn includes(&self, node: usize, object: usize) -> bool {
-        if node == object {
-            return true;
-        }
-        let node_obj = &self.objects[node];
-        match node_obj.kind {
-            ShapeKind::Group => node_obj
-                .children
-                .iter()
-                .any(|&c| self.includes(c, object)),
-            ShapeKind::Csg => {
-                node_obj.left.map_or(false, |l| self.includes(l, object))
-                    || node_obj.right.map_or(false, |r| self.includes(r, object))
+    // In-place version of `filter_intersections` over the buffer region
+    // [start..out.len): sort that slice by t, then keep only the hits the CSG
+    // operation allows, compacting survivors to the front of the region.
+    fn filter_region(&self, csg_id: usize, out: &mut Intersections, start: usize) {
+        let csg = &self.objects[csg_id];
+        let (operation, left) = match csg.kind {
+            ShapeKind::Csg => (csg.operation, csg.left.unwrap()),
+            _ => return,
+        };
+        let end = out.len;
+        // Stable insertion sort of the region by t (the children appended unsorted).
+        let mut i = start + 1;
+        while i < end {
+            let key = out.xs[i];
+            let mut j = i;
+            while j > start && out.xs[j - 1].t > key.t {
+                out.xs[j] = out.xs[j - 1];
+                j -= 1;
             }
-            _ => false,
+            out.xs[j] = key;
+            i += 1;
+        }
+        let mut inside_left = false;
+        let mut inside_right = false;
+        let mut w = start;
+        let mut k = start;
+        while k < end {
+            let inter = out.xs[k];
+            let left_hit = self.includes(left, inter.object_id);
+            if intersection_allowed(operation, left_hit, inside_left, inside_right) {
+                out.xs[w] = inter;
+                w += 1;
+            }
+            if left_hit {
+                inside_left = !inside_left;
+            } else {
+                inside_right = !inside_right;
+            }
+            k += 1;
+        }
+        out.len = w;
+    }
+    // Whether the subtree rooted at `node` contains `object`. Equivalent to the
+    // book's downward `includes` walk, but done iteratively by climbing
+    // `object`'s parent chain (which the arena keeps consistent with children/
+    // left/right): `object` is in `node`'s subtree iff `node` is its ancestor.
+    pub fn includes(&self, node: usize, object: usize) -> bool {
+        let mut cur = object;
+        loop {
+            if cur == node {
+                return true;
+            }
+            match self.objects[cur].parent() {
+                Some(p) => cur = p,
+                None => return false,
+            }
         }
     }
     // Keep only the intersections that lie on the CSG's combined surface. Walking
@@ -324,26 +514,47 @@ impl World {
     // inverse transform, then this object's own, converting a world-space point
     // into the object's local space.
     pub fn world_to_object(&self, id: usize, point: Point) -> Point {
-        let point = match self.objects[id].parent() {
-            Some(parent) => self.world_to_object(parent, point),
-            None => point,
-        };
-        let inverse = self.objects[id]
-            .get_inverse_transform()
-            .unwrap_or(Matrix::identity());
-        inverse * point
+        // Iterative form of the book's recursive world_to_object: collect the
+        // parent chain id..root, then apply inverses from the root down to `id`
+        // (ancestors first, this object last) — the same order the recursion did.
+        let mut chain = [0usize; MAX_TREE_DEPTH];
+        let mut n = 0;
+        let mut cur = id;
+        loop {
+            chain[n] = cur;
+            n += 1;
+            match self.objects[cur].parent() {
+                Some(parent) if n < MAX_TREE_DEPTH => cur = parent,
+                _ => break,
+            }
+        }
+        let mut p = point;
+        let mut k = n;
+        while k > 0 {
+            k -= 1;
+            let inverse = self.objects[chain[k]]
+                .get_inverse_transform()
+                .unwrap_or(Matrix::identity());
+            p = inverse * p;
+        }
+        p
     }
     // Book's normal_to_world: lift a normal out through this object's transform,
-    // then each ancestor's, normalizing at every step.
+    // then each ancestor's, normalizing at every step. Iterative parent-chain walk.
     fn normal_to_world(&self, id: usize, normal: Vector) -> Vector {
-        let inverse = self.objects[id]
-            .get_inverse_transform()
-            .unwrap_or(Matrix::identity());
-        let normal = (transpose(&inverse) * normal).normalize();
-        match self.objects[id].parent() {
-            Some(parent) => self.normal_to_world(parent, normal),
-            None => normal,
+        let mut normal = normal;
+        let mut cur = id;
+        loop {
+            let inverse = self.objects[cur]
+                .get_inverse_transform()
+                .unwrap_or(Matrix::identity());
+            normal = (transpose(&inverse) * normal).normalize();
+            match self.objects[cur].parent() {
+                Some(parent) => cur = parent,
+                None => break,
+            }
         }
+        normal
     }
     // Book's normal_at: the world-space normal of the leaf `id` at `world_point`,
     // accounting for every enclosing group's transform.
@@ -388,12 +599,11 @@ impl World {
             self.objects[csg_id].right = Some(right);
         }
     }
-    pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
+    // The direct (local) surface color at a hit: the Phong contribution of every
+    // light, shadow-tested independently, with no reflection/refraction. Shared
+    // by `shade_hit` and the iterative `color_at` so the two stay in lockstep.
+    fn surface_at(&self, comps: &Computations) -> Color {
         let object = &self.objects[comps.object_id];
-        // Sum the contribution of every light. Each light is shadow-tested
-        // independently, so a point can be lit by one light while shadowed
-        // from another. Note the material's ambient term is included once per
-        // light, so multiple lights brighten ambient additively.
         let mut surface = Color {
             r: 0.0,
             g: 0.0,
@@ -411,29 +621,111 @@ impl World {
                     intensity,
                 );
         }
+        surface
+    }
+    pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
+        let surface = self.surface_at(&comps);
         let reflected = self.reflected_color(&comps, remaining);
         let refracted = self.refracted_color(&comps, remaining);
 
-        let material = object.get_material();
+        let material = self.objects[comps.object_id].get_material();
         if material.reflective > 0.0 && material.transparency > 0.0 {
             let reflectance = comps.schlick();
             return surface + reflected * reflectance + refracted * (1.0 - reflectance);
         }
         surface + reflected + refracted
     }
+    // Iterative (recursion-free, GPU-compatible) equivalent of the recursive
+    // color_at -> shade_hit -> reflected/refracted_color -> color_at chain. Each
+    // pending ray contributes `weight * surface_at(hit)` and may spawn weighted
+    // reflect/refract child rays; expanding the recursion this way gives the same
+    // sum of weighted surfaces, bounded by `remaining`. `shade_hit` and the
+    // reflected/refracted helpers are kept (tests call them) and now bottom out
+    // in this iterative color_at, so nothing actually recurses.
     pub fn color_at(&self, ray: &Ray, remaining: usize) -> Color {
-        let xs = self.intersect_world(&ray);
-        match xs.hit() {
-            None => Color {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
+        let mut total = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        };
+        let mut stack = [ShadeJob::default(); MAX_SHADE_STACK];
+        let mut sp = 0usize;
+        stack[sp] = ShadeJob {
+            ray: *ray,
+            remaining,
+            weight: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
             },
-            Some(intersection) => self.shade_hit(
-                intersection.prepare_computations(&ray, self, &xs),
-                remaining,
-            ),
+        };
+        sp += 1;
+
+        while sp > 0 {
+            sp -= 1;
+            let job = stack[sp];
+            let xs = self.intersect_world(&job.ray);
+            let hit = match xs.hit() {
+                Some(h) => *h,
+                None => continue,
+            };
+            let comps = hit.prepare_computations(&job.ray, self, &xs);
+            total = total + self.surface_at(&comps) * job.weight;
+
+            if job.remaining == 0 {
+                continue;
+            }
+            let material = self.objects[comps.object_id].get_material();
+            let reflective = material.reflective;
+            let transparency = material.transparency;
+            if reflective == 0.0 && transparency == 0.0 {
+                continue;
+            }
+            // Refraction feasibility (Snell): total internal reflection drops the
+            // refracted ray, matching `refracted_color`.
+            let cos_i = comps.eyev.dot(comps.normalv);
+            let n_ratio = comps.n1 / comps.n2;
+            let sin2_t = n_ratio.powi(2) * (1.0 - cos_i.powi(2));
+            let tir = sin2_t > 1.0;
+
+            // Fresnel split only when the surface is both reflective and
+            // transparent (as in `shade_hit`); otherwise each acts alone.
+            let both = reflective > 0.0 && transparency > 0.0;
+            let reflectance = if both { comps.schlick() } else { 1.0 };
+
+            if reflective > 0.0 && sp < MAX_SHADE_STACK {
+                let w = if both { reflective * reflectance } else { reflective };
+                stack[sp] = ShadeJob {
+                    ray: Ray {
+                        origin: comps.over_point,
+                        direction: comps.reflectv,
+                    },
+                    remaining: job.remaining - 1,
+                    weight: job.weight * w,
+                };
+                sp += 1;
+            }
+            if transparency > 0.0 && !tir && sp < MAX_SHADE_STACK {
+                let cos_t = (1.0 - sin2_t).sqrt();
+                let direction =
+                    comps.normalv * (n_ratio * cos_i - cos_t) - comps.eyev * n_ratio;
+                let w = if both {
+                    transparency * (1.0 - reflectance)
+                } else {
+                    transparency
+                };
+                stack[sp] = ShadeJob {
+                    ray: Ray {
+                        origin: comps.under_point,
+                        direction,
+                    },
+                    remaining: job.remaining - 1,
+                    weight: job.weight * w,
+                };
+                sp += 1;
+            }
         }
+        total
     }
     pub fn is_shadowed(&self, point: Point, light: &Light) -> bool {
         self.is_shadowed_at(light.position(), point)

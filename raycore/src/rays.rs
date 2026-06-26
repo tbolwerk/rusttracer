@@ -1,7 +1,7 @@
 use crate::{matrices::Matrix, tuples::*};
 #[cfg(test)]
 use crate::transformations::*;
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Ray {
     pub origin: Point,
     pub direction: Vector,

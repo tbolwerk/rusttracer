@@ -293,24 +293,30 @@ impl Primitive {
         s
     }
     pub fn intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
+        let mut xs = Intersections::empty();
+        self.intersect_into(ray, object_id, &mut xs);
+        xs
+    }
+    // Push this leaf's intersections into `xs` (the buffer threaded through the
+    // iterative world traversal). Applies the leaf's own inverse transform, then
+    // dispatches on `kind`. Groups/CSG are handled by `World::intersect_object`.
+    pub fn intersect_into(&self, ray: &Ray, object_id: usize, xs: &mut Intersections) {
         let local_ray = match self.get_inverse_transform() {
             None => ray.clone(),
             Some(inverse_transform) => ray.transform(inverse_transform),
         };
-        let mut xs = Intersections::empty();
         match self.kind {
-            ShapeKind::Sphere => sphere_intersect(&local_ray, object_id, &mut xs),
-            ShapeKind::Plane => plane_intersect(&local_ray, object_id, &mut xs),
-            ShapeKind::Cube => cube_intersect(&local_ray, object_id, &mut xs),
-            ShapeKind::Cylinder => cylinder_intersect(self, &local_ray, object_id, &mut xs),
-            ShapeKind::Cone => cone_intersect(self, &local_ray, object_id, &mut xs),
-            ShapeKind::Triangle => triangle_intersect(self, &local_ray, object_id, &mut xs),
-            ShapeKind::SmoothTriangle => triangle_intersect(self, &local_ray, object_id, &mut xs),
+            ShapeKind::Sphere => sphere_intersect(&local_ray, object_id, xs),
+            ShapeKind::Plane => plane_intersect(&local_ray, object_id, xs),
+            ShapeKind::Cube => cube_intersect(&local_ray, object_id, xs),
+            ShapeKind::Cylinder => cylinder_intersect(self, &local_ray, object_id, xs),
+            ShapeKind::Cone => cone_intersect(self, &local_ray, object_id, xs),
+            ShapeKind::Triangle => triangle_intersect(self, &local_ray, object_id, xs),
+            ShapeKind::SmoothTriangle => triangle_intersect(self, &local_ray, object_id, xs),
             // Groups and CSG nodes are traversed by `World::intersect_object`,
             // never dispatched here.
             ShapeKind::Group | ShapeKind::Csg => {}
         }
-        xs
     }
     pub fn normal_at(&self, point: &Point) -> Vector {
         let inverse_transform = match self.get_inverse_transform() {
