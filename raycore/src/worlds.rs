@@ -27,12 +27,12 @@ use crate::tuples::*;
 // traversal and shading. The traversal stack is height-bounded (it iterates a
 // group's children via a cursor frame, not by pushing all of them), so this only
 // needs to cover the deepest group/CSG nesting plus a small constant.
-const MAX_TRAVERSAL_STACK: usize = 64;
+const MAX_TRAVERSAL_STACK: usize = 32;
 // Longest parent chain a normal/point transform walks (scene hierarchy depth).
-const MAX_TREE_DEPTH: usize = 64;
+const MAX_TREE_DEPTH: usize = 32;
 // Shading fans out to <= 2 rays (reflect + refract) per hit, depth-limited by
 // `remaining` (default 5), so 2^(5+1) is a safe ceiling.
-const MAX_SHADE_STACK: usize = 64;
+const MAX_SHADE_STACK: usize = 16;
 
 const ZERO_RAY: Ray = Ray {
     origin: Point {

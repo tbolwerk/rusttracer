@@ -9,7 +9,7 @@ use crate::worlds::Scene;
 // fixed-capacity array of this size so the ray path allocates nothing on the
 // heap (required for rust-gpu / no_std). Any intersections beyond this cap are
 // silently dropped (`push` debug-asserts to surface overflow in debug builds).
-pub const MAX_XS: usize = 256;
+pub const MAX_XS: usize = 64;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]

@@ -27,7 +27,7 @@ minifb = "0.27"
 # The host uses its `std` feature; the GPU shader depends on it with no features.
 raycore = { path = "raycore" }
 # GPU backend, only with `--features gpu`.
-wgpu = { version = "0.20", optional = true }
+wgpu = { version = "29.0.3", optional = true }
 pollster = { version = "0.3", optional = true }
 
 [[bin]]
