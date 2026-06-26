@@ -10,9 +10,9 @@ use core::ops::Sub;
 //    intrinsics (libm does not compile under the rust-gpu codegen backend).
 //  - everything else: num-traits' `Float` (libm-backed); on std builds the
 //    inherent f32 methods shadow it, so behavior is identical.
-#[cfg(target_arch = "spirv")]
+#[cfg(feature = "gpu")]
 pub use spirv_std::num_traits::Float;
-#[cfg(not(target_arch = "spirv"))]
+#[cfg(not(feature = "gpu"))]
 pub use num_traits::Float;
 pub type Number = f32;
 

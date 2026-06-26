@@ -16,7 +16,9 @@ rusttracer (CPU host, this crate)   gpu/shader (SPIR-V compute shader)
 
 ## What is done (CPU-verified)
 
-- `raycore` compiles `no_std`: `cargo build -p raycore --no-default-features`.
+- `raycore` compiles `no_std`: `cargo build -p raycore --no-default-features --features cpu-math`.
+  (The math backend is a feature: `cpu-math` = num-traits/libm for CPU/no_std;
+  `gpu` = spirv-std intrinsics for the shader. The shader crate uses `gpu`.)
 - `gpu/shader/src/lib.rs` — the compute entry calling `raycore::render::pixel_color`.
 - `gpu.rs` — wgpu host that uploads the scene and dispatches (behind `--features gpu`).
 - All data types are `#[repr(C)]` with `Option` fields flattened to sentinels.

@@ -18,7 +18,9 @@ crate-type = ["dylib", "lib"]
 # Pin spirv-std to the exact version your rust-gpu / cargo-gpu toolchain expects;
 # 0.9 is a placeholder. See gpu/README.md.
 spirv-std = "0.9"
-raycore = { path = "../../raycore", default-features = false }
+# `gpu` feature -> raycore's math comes from spirv-std (no libm, which can't
+# compile under the rust-gpu backend). default-features=false drops std + cpu-math.
+raycore = { path = "../../raycore", default-features = false, features = ["gpu"] }
 
 # rust-gpu needs the const-generics feature raycore uses; nothing else here.
 [features]

@@ -10,25 +10,24 @@ edition = "2021"
 [lib]
 path = "src/lib.rs"
 
+# The f32 `Float` math source is chosen by FEATURE, not target-cfg: rust-gpu's
+# custom SPIR-V target makes Cargo's `[target.'cfg(...)']` evaluation unreliable,
+# so we let the depending crate pick deterministically.
+#  - `cpu-math` (in default): num-traits backed by libm. The CPU host + the
+#    `--no-default-features --features cpu-math` no_std check use this. (On std
+#    builds the inherent f32 methods shadow the trait anyway.)
+#  - `gpu`: spirv-std, whose `num_traits::Float` is backed by SPIR-V intrinsics.
+#    libm CANNOT compile under the rust-gpu codegen backend, so the shader crate
+#    builds raycore with `default-features = false, features = ["gpu"]`.
+# Exactly one of cpu-math / gpu must be enabled.
 [features]
-# `std` (default) builds the CPU host renderer: the Vec-based `World`, scene
-# building (groups/CSG/BVH/OBJ), and inherent f32 math. Disable it for the GPU:
-# `--no-default-features` compiles only the no_std, heap-free core (Scene + the
-# trace path + math + flat data types), which is what rust-gpu turns into SPIR-V.
-default = ["std"]
+default = ["std", "cpu-math"]
 std = []
+cpu-math = ["dep:num-traits"]
+gpu = ["dep:spirv-std"]
 
-# f32 transcendental/rounding math (sqrt, powi, sin, atan2, floor, ...) for the
-# no_std core. The source of the `Float` trait depends on the target:
-#  - Non-SPIR-V (CPU host + the `--no-default-features` host check): num-traits
-#    backed by libm. On std builds the inherent f32 methods shadow it.
-#  - SPIR-V (rust-gpu): libm CANNOT compile under the rust-gpu codegen backend,
-#    so the math comes from spirv-std's GPU intrinsics instead (see tuples.rs).
-[target.'cfg(not(target_arch = "spirv"))'.dependencies]
-num-traits = { version = "0.2", default-features = false, features = ["libm"] }
-libm = "0.2"
-
-[target.'cfg(target_arch = "spirv")'.dependencies]
-# Provides `num_traits::Float` for f32 via SPIR-V intrinsics. Pin to the version
-# matching your rust-gpu (0.9.0 here).
-spirv-std = "0.9"
+[dependencies]
+# Brings libm transitively via its own `libm` feature (CPU/no_std path only).
+num-traits = { version = "0.2", default-features = false, features = ["libm"], optional = true }
+# Provides Float via GPU intrinsics on the SPIR-V target. Pin to your rust-gpu.
+spirv-std = { version = "0.9", optional = true }
