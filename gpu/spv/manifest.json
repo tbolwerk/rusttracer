@@ -1,0 +1,7 @@
+[
+  {
+    "source_path": "../spv/raycore_shader.spv",
+    "entry_point": "main_cs",
+    "wgsl_entry_point": "main_cs"
+  }
+]

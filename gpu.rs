@@ -16,7 +16,7 @@ use raycore::worlds::World;
 use wgpu::util::DeviceExt;
 
 // Reinterpret a slice of repr(C) values as raw bytes for upload.
-fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
+fn as_bytes<T>(slice: &[T]) -> &[u8] {
     unsafe {
         core::slice::from_raw_parts(slice.as_ptr() as *const u8, core::mem::size_of_val(slice))
     }
@@ -37,7 +37,7 @@ pub fn render_gpu(world: &World, cam: &Cam) -> Vec<u32> {
         .block_on()
         .expect("no GPU adapter (run without --features gpu for the CPU path)");
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor::default())
         .block_on()
         .expect("failed to create GPU device");
 
@@ -91,7 +91,7 @@ pub fn render_gpu(world: &World, cam: &Cam) -> Vec<u32> {
         label: Some("raycore"),
         layout: None,
         module: &module,
-        entry_point: "main_cs",
+        entry_point: Some("main_cs"),
         compilation_options: Default::default(),
         cache: None,
     });
@@ -126,7 +126,7 @@ pub fn render_gpu(world: &World, cam: &Cam) -> Vec<u32> {
     // --- read back --------------------------------------------------------
     let slice = staging.slice(..);
     slice.map_async(wgpu::MapMode::Read, |_| {});
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     let data = slice.get_mapped_range();
     let out: Vec<u32> = bytemuck_cast_u32(&data);
     drop(data);

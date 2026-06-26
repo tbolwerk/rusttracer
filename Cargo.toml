@@ -26,8 +26,9 @@ minifb = "0.27"
 # The shared CPU/GPU ray-tracing core (math + renderer). Single source of truth.
 # The host uses its `std` feature; the GPU shader depends on it with no features.
 raycore = { path = "raycore" }
-# GPU backend, only with `--features gpu`.
-wgpu = { version = "29.0.3", optional = true }
+# GPU backend, only with `--features gpu`. The `spirv` feature enables
+# ShaderSource::SpirV so we can load the precompiled raycore_shader.spv.
+wgpu = { version = "29.0.3", optional = true, features = ["spirv"] }
 pollster = { version = "0.3", optional = true }
 
 [[bin]]
