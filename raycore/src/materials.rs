@@ -506,7 +506,7 @@ mod tests {
             },
         };
         let i = Intersection::new(sqrt(2.0), 0);
-        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
+        let comps = i.prepare_computations(&r, &w.scene(), &Intersections::new(vec![]));
         assert_eq!(
             comps.reflectv,
             Vector {

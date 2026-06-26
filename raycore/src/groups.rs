@@ -22,7 +22,7 @@ mod tests {
         assert_eq!(g.get_transform(), Matrix::identity());
         assert_eq!(g.parent(), None);
         assert_eq!(g.kind, ShapeKind::Group);
-        assert_eq!(g.children, Vec::<usize>::new());
+        assert_eq!(g.child_count, 0);
     }
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
         // child records the group as parent, group records the child's id
         assert_eq!(w.objects[s].parent(), Some(g));
         assert_eq!(w.objects[g].kind, ShapeKind::Group);
-        assert_eq!(w.objects[g].children, vec![s]);
+        assert_eq!(w.children[g], vec![s]);
     }
 
     #[test]

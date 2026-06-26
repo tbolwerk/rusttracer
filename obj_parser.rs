@@ -507,14 +507,14 @@ f 1 3 4";
         let root = parser.to_world(&mut w);
         // The root group holds one child group per non-empty OBJ group.
         assert_eq!(w.objects[root].kind, ShapeKind::Group);
-        let children = w.objects[root].children.clone();
+        let children = w.children[root].clone();
         assert_eq!(children.len(), 2);
         for child in &children {
             assert_eq!(w.objects[*child].kind, ShapeKind::Group);
         }
         // The first child group is FirstGroup, holding triangle (v1, v2, v3).
         assert_eq!(w.objects[children[0]].kind, ShapeKind::Group);
-        let first_tri_id = w.objects[children[0]].children[0];
+        let first_tri_id = w.children[children[0]][0];
         let t = as_triangle(&w.objects[first_tri_id]);
         assert_eq!(t.p1, parser.vertices[1]);
         assert_eq!(t.p2, parser.vertices[2]);

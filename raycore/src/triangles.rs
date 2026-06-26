@@ -330,7 +330,7 @@ mod tests {
             },
         };
         let xs = Intersections::new(vec![i]);
-        let comps = i.prepare_computations(&r, &w, &xs);
+        let comps = i.prepare_computations(&r, &w.scene(), &xs);
         assert_almost_eq!(comps.normalv.x, -0.5547);
         assert_almost_eq!(comps.normalv.y, 0.83205);
         assert_almost_eq!(comps.normalv.z, 0.0);

@@ -3,7 +3,7 @@ use std::ops::Index;
 use crate::rays::*;
 use crate::shapes::*;
 use crate::tuples::*;
-use crate::worlds::World;
+use crate::worlds::Scene;
 
 // Maximum number of intersections tracked per ray. The intersection buffer is a
 // fixed-capacity array of this size so the ray path allocates nothing on the
@@ -59,7 +59,7 @@ impl Intersection {
     pub fn prepare_computations(
         &self,
         ray: &Ray,
-        world: &World,
+        world: &Scene,
         xs: &Intersections,
     ) -> Computations {
         let mut n1 = 1.0;
@@ -272,6 +272,7 @@ mod tests {
     use crate::{
         materials::Material,
         transformations::{scaling, translation},
+        worlds::World,
     };
 
     use super::*;
@@ -349,7 +350,7 @@ mod tests {
         let shape = Primitive::sphere();
         w.objects.append(&mut vec![shape]);
         let i = Intersection::new(4.0, 0);
-        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
+        let comps = i.prepare_computations(&r, &w.scene(), &Intersections::new(vec![]));
         assert_eq!(comps.t, i.t);
         assert_eq!(comps.object_id, i.object_id);
         assert_eq!(
@@ -395,7 +396,7 @@ mod tests {
         let i = Intersection::new(4.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
-        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
+        let comps = i.prepare_computations(&r, &w.scene(), &Intersections::new(vec![]));
         assert_eq!(comps.inside, false);
     }
     #[test]
@@ -416,7 +417,7 @@ mod tests {
         let i = Intersection::new(1.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
-        let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
+        let comps = i.prepare_computations(&r, &w.scene(), &Intersections::new(vec![]));
         assert_eq!(
             comps.point,
             Point {
@@ -491,7 +492,7 @@ mod tests {
         ];
         w.objects = vec![a, b, c];
         for index in 0..xs.count() {
-            let comps = xs[index].prepare_computations(&r, &w, &xs);
+            let comps = xs[index].prepare_computations(&r, &w.scene(), &xs);
             assert_eq!(comps.n1, examples[index][0]);
             assert_eq!(comps.n2, examples[index][1]);
         }
@@ -520,7 +521,7 @@ mod tests {
         let mut w = World::default();
         w.objects = vec![shape];
 
-        let comps = i.prepare_computations(&r, &w, &xs);
+        let comps = i.prepare_computations(&r, &w.scene(), &xs);
         assert_eq!(comps.under_point.z > EPSILON / 2.0, true);
         assert_eq!(comps.point.z < comps.under_point.z, true);
     }
@@ -545,7 +546,7 @@ mod tests {
         ]);
         let mut w = World::default();
         w.objects = vec![shape];
-        let comps = xs[1].prepare_computations(&r, &w, &xs);
+        let comps = xs[1].prepare_computations(&r, &w.scene(), &xs);
         let reflectance = comps.schlick();
         assert_eq!(reflectance, 1.0);
     }
@@ -567,7 +568,7 @@ mod tests {
         let xs = Intersections::new(vec![Intersection::new(-1.0, 0), Intersection::new(1.0, 0)]);
         let mut w = World::default();
         w.objects = vec![shape];
-        let comps = xs[1].prepare_computations(&r, &w, &xs);
+        let comps = xs[1].prepare_computations(&r, &w.scene(), &xs);
         let reflectance = comps.schlick();
         assert_almost_eq!(reflectance, 0.04);
     }
@@ -589,7 +590,7 @@ mod tests {
         let xs = Intersections::new(vec![Intersection::new(1.8589, 0)]);
         let mut w = World::default();
         w.objects = vec![shape];
-        let comps = xs[0].prepare_computations(&r, &w, &xs);
+        let comps = xs[0].prepare_computations(&r, &w.scene(), &xs);
         let reflectance = comps.schlick();
         assert_almost_eq!(reflectance, 0.48873);
     }

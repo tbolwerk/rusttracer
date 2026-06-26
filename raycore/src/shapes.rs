@@ -56,8 +56,11 @@ pub struct Primitive {
     pub n1: Vector,
     pub n2: Vector,
     pub n3: Vector,
-    // group
-    pub children: Vec<usize>,
+    // group: children live in `World::child_indices[child_start .. child_start +
+    // child_count]` (a flat, heap-free projection the trace reads), not on the
+    // primitive. The logical adjacency is kept in `World::children`.
+    pub child_start: u32,
+    pub child_count: u32,
     // csg
     pub operation: CsgOperation,
     pub left: Option<usize>,
@@ -96,7 +99,8 @@ impl Primitive {
             n1: zero,
             n2: zero,
             n3: zero,
-            children: vec![],
+            child_start: 0,
+            child_count: 0,
             operation: CsgOperation::Union,
             left: None,
             right: None,
