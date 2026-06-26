@@ -13,6 +13,11 @@
 // `cfg(target_arch = "spirv")` is unknown to non-spirv toolchains' check-cfg, so
 // they'd warn on it; rust-gpu sets it when compiling the shader.
 #![allow(unexpected_cfgs)]
+// rust-gpu pins an older nightly (1.71) where `const fn` with `&mut self` and
+// float arithmetic in `const fn` are still unstable. They are stable on the
+// host's modern nightly, so only enable the gates for the GPU build.
+#![cfg_attr(feature = "gpu", feature(const_mut_refs))]
+#![cfg_attr(feature = "gpu", feature(const_fn_floating_point_arithmetic))]
 
 pub mod tuples;
 pub mod matrices;

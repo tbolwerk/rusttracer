@@ -51,7 +51,11 @@ impl StableFloor for Number {
 }
 
 pub const fn almost_eq(a: Number, b: Number) -> bool {
-    (a - b).abs() <= EPSILON
+    // Avoid f32::abs() here: it is not a const fn on rust-gpu's old nightly, so a
+    // manual absolute value keeps this const-callable on every toolchain.
+    let d = a - b;
+    let d = if d < 0.0 { -d } else { d };
+    d <= EPSILON
 }
 
 #[cfg(test)]
