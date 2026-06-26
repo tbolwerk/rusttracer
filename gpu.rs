@@ -68,7 +68,9 @@ pub fn render_gpu(world: &World, cam: &Cam) -> Vec<u32> {
     let cam_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("cam"),
         contents: as_bytes(&[*cam]),
-        usage: wgpu::BufferUsages::UNIFORM,
+        // STORAGE, not UNIFORM: Cam embeds a Matrix whose array stride (4) is
+        // invalid under a uniform buffer's std140 rules but fine under std430.
+        usage: wgpu::BufferUsages::STORAGE,
     });
     let out_size = (pixels * core::mem::size_of::<u32>()) as u64;
     let out_buf = device.create_buffer(&wgpu::BufferDescriptor {

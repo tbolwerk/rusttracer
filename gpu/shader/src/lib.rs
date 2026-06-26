@@ -43,7 +43,10 @@ pub fn main_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] objects: &[Primitive],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] lights: &[Light],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] child_indices: &[usize],
-    #[spirv(uniform, descriptor_set = 0, binding = 3)] cam: &Cam,
+    // Storage buffer, not uniform: Cam embeds a Matrix<4,4> ([[f32;4];4], array
+    // stride 4), which a Uniform buffer's std140 rules reject (they require array
+    // stride 16). Storage buffers use the relaxed std430 layout, which allows it.
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] cam: &Cam,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] out: &mut [u32],
 ) {
     let x = id.x;
