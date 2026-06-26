@@ -1,43 +1,15 @@
-use crate::bounds::BoundingBox;
-use crate::intersections::Intersections;
-use crate::materials::Material;
-use crate::rays::Ray;
-use crate::shapes::{HasMaterial, Intersects, TransformData};
-
 // Constructive Solid Geometry combines two shapes with a set operation. Like a
 // group, a CSG node owns no surface of its own; it owns two children (`left` and
 // `right`, arena indices into `World::objects`) and a rule for which of their
 // surface intersections survive. `World::intersect_object` intersects both
-// children and then keeps only the allowed hits via `filter_intersections`.
+// children and then keeps only the allowed hits via `filter_intersections`. The
+// node's data (operation, left, right, bounds) lives in the flat `Primitive`
+// struct; only the operation enum and the rule helper remain here.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CsgOperation {
     Union,        // everything in either shape; the shared interior wall vanishes
     Intersection, // only the volume the two shapes share
     Difference,   // the left shape with the right carved out of it
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Csg {
-    pub transform: TransformData,
-    pub operation: CsgOperation,
-    // `None` only during construction, before the children are attached.
-    pub left: Option<usize>,
-    pub right: Option<usize>,
-    // Union of the children's boxes, in this node's space; filled by
-    // `World::compute_bounds`, then used to cull whole subtrees.
-    pub bounds: Option<BoundingBox>,
-}
-
-impl Csg {
-    pub fn new(operation: CsgOperation) -> Self {
-        Self {
-            transform: TransformData::default(),
-            operation,
-            left: None,
-            right: None,
-            bounds: None,
-        }
-    }
 }
 
 // The heart of CSG: given the operation, whether the hit was on the left child
@@ -53,23 +25,6 @@ pub fn intersection_allowed(op: CsgOperation, lhit: bool, inl: bool, inr: bool) 
         // Left faces survive outside the right; right faces survive only where
         // they bound the cavity, i.e. inside the left.
         CsgOperation::Difference => (lhit && !inr) || (!lhit && inl),
-    }
-}
-
-// A CSG node has no surface, so these never run in practice: rays reach its
-// children through `World::intersect_object`, and intersections only ever carry
-// leaf (primitive) object ids. The impls exist so `Csg` can sit in the `Shape`
-// enum next to the primitives, mirroring `Group`.
-impl Intersects for Csg {
-    fn local_intersect(&self, _ray: &Ray, _object_id: usize) -> Intersections {
-        unreachable!("CSG is intersected through World::intersect_object")
-    }
-}
-
-impl HasMaterial for Csg {
-    fn set_material(&mut self, _material: Material) {}
-    fn get_material(&self) -> Material {
-        Material::default()
     }
 }
 
@@ -126,18 +81,15 @@ mod tests {
     #[test]
     fn csg_is_created_with_an_operation_and_two_shapes() {
         let mut w = World::new();
-        let c = w.add_object(Shape::csg(CsgOperation::Union));
-        let s1 = w.add_object(Shape::sphere());
-        let s2 = w.add_object(Shape::cube());
+        let c = w.add_object(Primitive::csg(CsgOperation::Union));
+        let s1 = w.add_object(Primitive::sphere());
+        let s2 = w.add_object(Primitive::cube());
         w.set_csg_children(c, s1, s2);
-        match &w.objects[c] {
-            Shape::Csg(csg) => {
-                assert_eq!(csg.operation, CsgOperation::Union);
-                assert_eq!(csg.left, Some(s1));
-                assert_eq!(csg.right, Some(s2));
-            }
-            _ => panic!("expected a CSG"),
-        }
+        let csg = &w.objects[c];
+        assert_eq!(csg.kind, ShapeKind::Csg);
+        assert_eq!(csg.operation, CsgOperation::Union);
+        assert_eq!(csg.left, Some(s1));
+        assert_eq!(csg.right, Some(s2));
         // The children point back up at the CSG, as the book's `csg()` arranges.
         assert_eq!(w.objects[s1].parent(), Some(c));
         assert_eq!(w.objects[s2].parent(), Some(c));
@@ -154,9 +106,9 @@ mod tests {
         ];
         for (operation, expected) in cases {
             let mut w = World::new();
-            let c = w.add_object(Shape::csg(operation));
-            let s1 = w.add_object(Shape::sphere());
-            let s2 = w.add_object(Shape::cube());
+            let c = w.add_object(Primitive::csg(operation));
+            let s1 = w.add_object(Primitive::sphere());
+            let s2 = w.add_object(Primitive::cube());
             w.set_csg_children(c, s1, s2);
             let xs = Intersections::new(vec![
                 Intersection::new(1.0, s1),
@@ -174,9 +126,9 @@ mod tests {
     #[test]
     fn a_ray_misses_a_csg_object() {
         let mut w = World::new();
-        let c = w.add_object(Shape::csg(CsgOperation::Union));
-        let s1 = w.add_object(Shape::sphere());
-        let s2 = w.add_object(Shape::cube());
+        let c = w.add_object(Primitive::csg(CsgOperation::Union));
+        let s1 = w.add_object(Primitive::sphere());
+        let s2 = w.add_object(Primitive::cube());
         w.set_csg_children(c, s1, s2);
         let r = Ray {
             origin: Point {
@@ -196,9 +148,9 @@ mod tests {
     #[test]
     fn a_ray_hits_a_csg_object() {
         let mut w = World::new();
-        let c = w.add_object(Shape::csg(CsgOperation::Union));
-        let s1 = w.add_object(Shape::sphere());
-        let mut sphere2 = Shape::sphere();
+        let c = w.add_object(Primitive::csg(CsgOperation::Union));
+        let s1 = w.add_object(Primitive::sphere());
+        let mut sphere2 = Primitive::sphere();
         sphere2.set_transform(translation(0.0, 0.0, 0.5));
         let s2 = w.add_object(sphere2);
         w.set_csg_children(c, s1, s2);

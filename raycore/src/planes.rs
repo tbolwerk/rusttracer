@@ -1,46 +1,27 @@
 use crate::intersections::*;
-use crate::materials::*;
 use crate::rays::*;
-use crate::shapes::*;
 use crate::tuples::*;
+#[cfg(test)]
+use crate::shapes::*;
 
-impl Default for Plane {
-    fn default() -> Self {
-        Self {
-            transform: TransformData::default(),
-            material: Material::default(),
-        }
+// The plane lies in the xz axis (y = 0). A ray hits it once, unless it runs
+// parallel (its y-direction is ~0).
+pub fn plane_intersect(ray: &Ray, object_id: usize) -> Intersections {
+    if ray.direction.y().abs() < EPSILON {
+        return Intersections::new(vec![]);
     }
+    Intersections::new(vec![Intersection::new(
+        -ray.origin.y / ray.direction.y,
+        object_id,
+    )])
 }
-#[derive(Debug, PartialEq, Clone)]
-pub struct Plane {
-    pub transform: TransformData,
-    material: Material,
-}
-impl HasMaterial for Plane {
-    fn set_material(&mut self, material: Material) -> () {
-        self.material = material;
-    }
-    fn get_material(&self) -> Material {
-        self.material.clone()
-    }
-}
-impl Intersects for Plane {
-    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
-        if ray.direction.y().abs() < EPSILON {
-            return Intersections::new(vec![]);
-        }
-        Intersections::new(vec![Intersection::new(
-            -ray.origin.y / ray.direction.y,
-            object_id,
-        )])
-    }
-    fn local_normal_at(&self, _: &Point) -> Vector {
-        Vector {
-            x: 0.0,
-            y: 1.0,
-            z: 0.0,
-        }
+
+// A plane's normal points straight up everywhere; the point is irrelevant.
+pub fn plane_normal_at(_: &Point) -> Vector {
+    Vector {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
     }
 }
 #[cfg(test)]
@@ -48,18 +29,17 @@ mod tests {
     use super::*;
     #[test]
     fn the_normal_of_a_plane_is_constant_everywhere() {
-        let p = Plane::default();
-        let n1 = p.local_normal_at(&Point {
+        let n1 = plane_normal_at(&Point {
             x: 0.0,
             y: 0.0,
             z: 0.0,
         });
-        let n2 = p.local_normal_at(&Point {
+        let n2 = plane_normal_at(&Point {
             x: 10.0,
             y: 0.0,
             z: -10.0,
         });
-        let n3 = p.local_normal_at(&Point {
+        let n3 = plane_normal_at(&Point {
             x: -5.0,
             y: 0.0,
             z: 150.0,
@@ -91,7 +71,6 @@ mod tests {
     }
     #[test]
     fn intersect_with_a_ray_parallel_to_the_plane() {
-        let p = Plane::default();
         let r = Ray {
             origin: Point {
                 x: 0.0,
@@ -104,12 +83,11 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = p.local_intersect(&r, 0);
+        let xs = plane_intersect(&r, 0);
         assert_eq!(xs.count(), 0);
     }
     #[test]
     fn intersect_with_a_coplanar_ray() {
-        let p = Plane::default();
         let r = Ray {
             origin: Point {
                 x: 0.0,
@@ -122,12 +100,12 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = p.local_intersect(&r, 0);
+        let xs = plane_intersect(&r, 0);
         assert_eq!(xs.count(), 0);
     }
     #[test]
     fn a_plane_intersecting_a_plane_from_above() {
-        let p = Shape::plane();
+        let p = Primitive::plane();
         let r = Ray {
             origin: Point {
                 x: 0.0,

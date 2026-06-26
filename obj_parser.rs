@@ -11,7 +11,7 @@
 // `ignored` and skipped, so a malformed line never aborts the parse.
 
 use crate::materials::Material;
-use crate::shapes::{HasMaterial, Shape};
+use crate::shapes::{HasMaterial, Primitive, ShapeKind};
 use crate::tuples::*;
 use crate::worlds::World;
 use std::cmp::Ordering;
@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 #[derive(Debug)]
 pub struct ObjGroup {
     pub name: String,
-    pub triangles: Vec<Shape>,
+    pub triangles: Vec<Primitive>,
 }
 
 #[derive(Debug)]
@@ -50,12 +50,12 @@ impl ObjParser {
     // transform the returned group and should call `world.compute_bounds()`
     // afterwards so the many triangles get bounding-box culling.
     pub fn to_world(&self, world: &mut World) -> usize {
-        let root = world.add_object(Shape::group());
+        let root = world.add_object(Primitive::group());
         for group in &self.groups {
             if group.triangles.is_empty() {
                 continue;
             }
-            let child = world.add_child(root, Shape::group());
+            let child = world.add_child(root, Primitive::group());
             for triangle in &group.triangles {
                 world.add_child(child, triangle.clone());
             }
@@ -95,7 +95,7 @@ impl ObjParser {
     }
 
     // Every triangle across every OBJ group, flattened into one list.
-    fn all_triangles(&self) -> Vec<Shape> {
+    fn all_triangles(&self) -> Vec<Primitive> {
         self.groups
             .iter()
             .flat_map(|g| g.triangles.iter().cloned())
@@ -107,14 +107,14 @@ impl ObjParser {
 // root group, returning its arena id.
 fn build_from_triangles(
     world: &mut World,
-    mut triangles: Vec<Shape>,
+    mut triangles: Vec<Primitive>,
     leaf_size: usize,
     material: Material,
 ) -> usize {
     for triangle in &mut triangles {
         triangle.set_material(material.clone());
     }
-    let root = world.add_object(Shape::group());
+    let root = world.add_object(Primitive::group());
     build_bvh(world, root, triangles, leaf_size.max(1));
     root
 }
@@ -125,7 +125,7 @@ fn build_from_triangles(
 // to a fine grid groups exactly the triangles that touch. A vertex whose face
 // normals cancel falls back to that triangle's flat normal. Non-triangle shapes
 // pass through unchanged.
-fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
+fn smoothed(triangles: Vec<Primitive>) -> Vec<Primitive> {
     use std::collections::HashMap;
     // Quantize a position into an integer key. 1e4 keeps ~4 decimals, far finer
     // than the spacing between distinct vertices but coarse enough to ignore
@@ -139,8 +139,8 @@ fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
     // the orientation the flat triangle uses for its own normal, and its length is
     // proportional to the face area, so larger faces pull the average more.
     let mut accum: HashMap<(i64, i64, i64), Vector> = HashMap::new();
-    for shape in &triangles {
-        if let Shape::Triangle(t) = shape {
+    for t in &triangles {
+        if t.kind == ShapeKind::Triangle {
             let face = t.e2.cross(t.e1);
             for p in [t.p1, t.p2, t.p3] {
                 let entry = accum.entry(key(p)).or_insert(Vector {
@@ -155,8 +155,8 @@ fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
 
     triangles
         .into_iter()
-        .map(|shape| match shape {
-            Shape::Triangle(t) => {
+        .map(|t| {
+            if t.kind == ShapeKind::Triangle {
                 let normal_at = |p: Point, flat: Vector| {
                     let summed = accum.get(&key(p)).copied().unwrap_or(flat);
                     if summed.magnitude() < EPSILON {
@@ -166,7 +166,7 @@ fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
                     }
                 };
                 let flat = t.e2.cross(t.e1);
-                Shape::smooth_triangle(
+                Primitive::smooth_triangle(
                     t.p1,
                     t.p2,
                     t.p3,
@@ -174,18 +174,18 @@ fn smoothed(triangles: Vec<Shape>) -> Vec<Shape> {
                     normal_at(t.p2, flat),
                     normal_at(t.p3, flat),
                 )
+            } else {
+                t
             }
-            other => other,
         })
         .collect()
 }
 
 // The centroid of a triangle shape, used to decide which side of a split it
 // falls on. Non-triangle shapes never reach here, so they map to the origin.
-fn triangle_centroid(shape: &Shape) -> Point {
-    let (a, b, c) = match shape {
-        Shape::Triangle(t) => (t.p1, t.p2, t.p3),
-        Shape::SmoothTriangle(t) => (t.p1, t.p2, t.p3),
+fn triangle_centroid(shape: &Primitive) -> Point {
+    let (a, b, c) = match shape.kind {
+        ShapeKind::Triangle | ShapeKind::SmoothTriangle => (shape.p1, shape.p2, shape.p3),
         _ => return Point {
             x: 0.0,
             y: 0.0,
@@ -213,7 +213,7 @@ fn axis_value(p: Point, axis: usize) -> Number {
 // into its own child group. Children are always created after their parent, so
 // the arena ids stay monotonic and `World::compute_bounds` (which finalizes in
 // reverse id order) sees every child's box before the parent's.
-fn build_bvh(world: &mut World, parent: usize, mut triangles: Vec<Shape>, leaf_size: usize) {
+fn build_bvh(world: &mut World, parent: usize, mut triangles: Vec<Primitive>, leaf_size: usize) {
     if triangles.len() <= leaf_size {
         for triangle in triangles {
             world.add_child(parent, triangle);
@@ -249,9 +249,9 @@ fn build_bvh(world: &mut World, parent: usize, mut triangles: Vec<Shape>, leaf_s
 
     let mid = triangles.len() / 2;
     let right = triangles.split_off(mid);
-    let left_group = world.add_child(parent, Shape::group());
+    let left_group = world.add_child(parent, Primitive::group());
     build_bvh(world, left_group, triangles, leaf_size);
-    let right_group = world.add_child(parent, Shape::group());
+    let right_group = world.add_child(parent, Primitive::group());
     build_bvh(world, right_group, right, leaf_size);
 }
 
@@ -274,7 +274,7 @@ fn parse_face_vertex(token: &str) -> Option<(usize, Option<usize>)> {
 // is (v0, v1, v2), (v0, v2, v3), ... A triangle whose three references all have
 // a normal becomes a smooth triangle. Returns None (so the caller can count the
 // line as ignored) if any reference is malformed or out of range.
-fn parse_face(specs: &[&str], vertices: &[Point], normals: &[Vector]) -> Option<Vec<Shape>> {
+fn parse_face(specs: &[&str], vertices: &[Point], normals: &[Vector]) -> Option<Vec<Primitive>> {
     if specs.len() < 3 {
         return None;
     }
@@ -296,9 +296,9 @@ fn parse_face(specs: &[&str], vertices: &[Point], normals: &[Vector]) -> Option<
                 let na = *normals.get(a)?;
                 let nb = *normals.get(b)?;
                 let nc = *normals.get(c)?;
-                triangles.push(Shape::smooth_triangle(p1, p2, p3, na, nb, nc));
+                triangles.push(Primitive::smooth_triangle(p1, p2, p3, na, nb, nc));
             }
-            _ => triangles.push(Shape::triangle(p1, p2, p3)),
+            _ => triangles.push(Primitive::triangle(p1, p2, p3)),
         }
     }
     Some(triangles)
@@ -383,19 +383,14 @@ pub fn parse_obj(input: &str) -> ObjParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::triangles::{SmoothTriangle, Triangle};
 
-    fn as_triangle(s: &Shape) -> &Triangle {
-        match s {
-            Shape::Triangle(t) => t,
-            _ => panic!("expected a flat triangle"),
-        }
+    fn as_triangle(s: &Primitive) -> &Primitive {
+        assert_eq!(s.kind, ShapeKind::Triangle, "expected a flat triangle");
+        s
     }
-    fn as_smooth(s: &Shape) -> &SmoothTriangle {
-        match s {
-            Shape::SmoothTriangle(t) => t,
-            _ => panic!("expected a smooth triangle"),
-        }
+    fn as_smooth(s: &Primitive) -> &Primitive {
+        assert_eq!(s.kind, ShapeKind::SmoothTriangle, "expected a smooth triangle");
+        s
     }
 
     #[test]
@@ -511,19 +506,15 @@ f 1 3 4";
         let mut w = World::new();
         let root = parser.to_world(&mut w);
         // The root group holds one child group per non-empty OBJ group.
-        let children = match &w.objects[root] {
-            Shape::Group(g) => g.children.clone(),
-            _ => panic!("expected a group"),
-        };
+        assert_eq!(w.objects[root].kind, ShapeKind::Group);
+        let children = w.objects[root].children.clone();
         assert_eq!(children.len(), 2);
         for child in &children {
-            assert!(matches!(w.objects[*child], Shape::Group(_)));
+            assert_eq!(w.objects[*child].kind, ShapeKind::Group);
         }
         // The first child group is FirstGroup, holding triangle (v1, v2, v3).
-        let first_tri_id = match &w.objects[children[0]] {
-            Shape::Group(g) => g.children[0],
-            _ => panic!("expected a group"),
-        };
+        assert_eq!(w.objects[children[0]].kind, ShapeKind::Group);
+        let first_tri_id = w.objects[children[0]].children[0];
         let t = as_triangle(&w.objects[first_tri_id]);
         assert_eq!(t.p1, parser.vertices[1]);
         assert_eq!(t.p2, parser.vertices[2]);

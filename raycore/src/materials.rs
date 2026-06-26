@@ -1,7 +1,7 @@
 use crate::{
     lights::*,
     patterns::Pattern,
-    shapes::{HasMaterial, Shape},
+    shapes::{HasMaterial, Primitive},
     tuples::*,
 };
 
@@ -110,7 +110,7 @@ impl Material {
 // then scaled by `intensity`. A point light is a single sample, recovering the
 // original Phong result with `intensity` standing in for the old shadow flag.
 pub fn lightning(
-    object: &Shape,
+    object: &Primitive,
     light: Light,
     point: Point,
     eyev: Vector,
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn lightning_with_the_eye_between_the_light_and_the_surface() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn lightning_with_the_eye_between_the_light_and_the_surface_eye_offset_45_degrees() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn lightning_with_eye_opposite_surface_light_offset_45_degrees() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn lightning_with_eye_in_the_path_of_the_reflection_vector() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn lightning_with_the_light_behind_the_surface() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn lighting_with_the_surface_in_shadow() {
         let (m, position) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(m);
 
         let eyev = Vector {
@@ -434,7 +434,7 @@ mod tests {
         material.set_ambient(1.0);
         material.set_diffuse(0.0);
         material.set_specular(0.0);
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_material(material);
         let eyev = Vector {
             x: 0.0,
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn precomputing_the_reflection_vector() {
         let mut w = World::new();
-        let shape = Shape::plane();
+        let shape = Primitive::plane();
         w.objects.append(&mut vec![shape]);
 
         let r = Ray {

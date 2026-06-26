@@ -1,6 +1,6 @@
 use crate::{
     matrices::Matrix,
-    shapes::{HasTransform, Shape, TransformData},
+    shapes::{HasTransform, Primitive, TransformData},
     texture_maps::*,
     tuples::*,
 };
@@ -224,7 +224,7 @@ impl Pattern {
             transform: TransformData::new(Matrix::identity(), None),
         })
     }
-    pub fn pattern_at_shape(&self, object: &Shape, world_point: Point) -> Color {
+    pub fn pattern_at_shape(&self, object: &Primitive, world_point: Point) -> Color {
         let object_point = match object.get_inverse_transform() {
             None => world_point,
             Some(inverse_transform) => inverse_transform * world_point,
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn stripes_with_an_object_transformation() {
         let (black, white) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_transform(scaling(2.0, 2.0, 2.0));
         let pattern = Pattern::stripe_pattern(white, black);
         let c = pattern.pattern_at_shape(
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn stripes_with_a_pattern_transformation() {
         let (black, white) = background();
-        let object = Shape::sphere();
+        let object = Primitive::sphere();
         let mut pattern = Pattern::stripe_pattern(white, black);
         pattern.set_transform(scaling(2.0, 2.0, 2.0));
         let c = pattern.pattern_at_shape(
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn stripes_with_both_an_object_and_a_pattern_transformation() {
         let (black, white) = background();
-        let mut object = Shape::sphere();
+        let mut object = Primitive::sphere();
         object.set_transform(scaling(2.0, 2.0, 2.0));
         let mut pattern = Pattern::stripe_pattern(white, black);
         pattern.set_transform(translation(0.5, 0.0, 0.0));
@@ -478,7 +478,7 @@ mod tests {
     }
     #[test]
     fn a_pattern_with_an_object_transformation() {
-        let mut shape = Shape::sphere();
+        let mut shape = Primitive::sphere();
         shape.set_transform(scaling(2.0, 2.0, 2.0));
         let pattern = Pattern::test_pattern();
         let c = pattern.pattern_at_shape(
@@ -500,7 +500,7 @@ mod tests {
     }
     #[test]
     fn a_pattern_with_an_pattern_transformation() {
-        let shape = Shape::sphere();
+        let shape = Primitive::sphere();
         let mut pattern = Pattern::test_pattern();
         pattern.set_transform(scaling(2.0, 2.0, 2.0));
         let c = pattern.pattern_at_shape(
@@ -522,7 +522,7 @@ mod tests {
     }
     #[test]
     fn a_pattern_with_both_an_object_and_a_pattern_transformation() {
-        let mut shape = Shape::sphere();
+        let mut shape = Primitive::sphere();
         shape.set_transform(scaling(2.0, 2.0, 2.0));
         let mut pattern = Pattern::test_pattern();
         pattern.set_transform(translation(0.5, 1.0, 1.5));

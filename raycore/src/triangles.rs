@@ -1,166 +1,55 @@
 use crate::intersections::*;
-use crate::materials::*;
 use crate::rays::*;
-use crate::shapes::*;
+use crate::shapes::{Primitive, ShapeKind};
 use crate::tuples::*;
 
-// A flat triangle defined by its three corners. Following the book, the two
-// edge vectors and the surface normal are precomputed once at construction:
-// they never change (the triangle is rigid in object space), and the
-// Möller–Trumbore intersection test below reuses them on every ray.
-#[derive(Debug, PartialEq, Clone)]
-pub struct Triangle {
-    pub transform: TransformData,
-    material: Material,
-    pub p1: Point,
-    pub p2: Point,
-    pub p3: Point,
-    pub e1: Vector,
-    pub e2: Vector,
-    pub normal: Vector,
-}
+// The Möller–Trumbore algorithm, shared by both the flat and the smooth
+// triangle (their geometry and edge vectors are identical). It both tests for a
+// hit and locates it in the triangle's barycentric coordinates (u, v); a ray
+// misses unless it lands inside all three edges (u >= 0, v >= 0, u + v <= 1). A
+// smooth triangle keeps the (u, v) on the surviving hit so its normal can be
+// blended; a flat triangle ignores them.
+pub fn triangle_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Intersections {
+    let dir_cross_e2 = ray.direction.cross(prim.e2);
+    let det = prim.e1.dot(dir_cross_e2);
+    // A determinant near zero means the ray is parallel to the triangle.
+    if det.abs() < EPSILON {
+        return Intersections::new(vec![]);
+    }
 
-impl Triangle {
-    pub fn new(p1: Point, p2: Point, p3: Point) -> Self {
-        let e1 = p2 - p1;
-        let e2 = p3 - p1;
-        // The triangle is flat, so a single normal serves every point on it.
-        let normal = e2.cross(e1).normalize();
-        Triangle {
-            transform: TransformData::default(),
-            material: Material::default(),
-            p1,
-            p2,
-            p3,
-            e1,
-            e2,
-            normal,
+    let f = 1.0 / det;
+    let p1_to_origin = ray.origin - prim.p1;
+    let u = f * p1_to_origin.dot(dir_cross_e2);
+    if u < 0.0 || u > 1.0 {
+        return Intersections::new(vec![]);
+    }
+
+    let origin_cross_e1 = p1_to_origin.cross(prim.e1);
+    let v = f * ray.direction.dot(origin_cross_e1);
+    if v < 0.0 || (u + v) > 1.0 {
+        return Intersections::new(vec![]);
+    }
+
+    let t = f * prim.e2.dot(origin_cross_e1);
+    match prim.kind {
+        ShapeKind::SmoothTriangle => {
+            Intersections::new(vec![Intersection::with_uv(t, object_id, u, v)])
         }
-    }
-}
-
-impl HasMaterial for Triangle {
-    fn set_material(&mut self, material: Material) -> () {
-        self.material = material;
-    }
-    fn get_material(&self) -> Material {
-        self.material.clone()
+        _ => Intersections::new(vec![Intersection::new(t, object_id)]),
     }
 }
 
-impl Intersects for Triangle {
-    // The Möller–Trumbore algorithm. It both tests for a hit and locates it in
-    // the triangle's barycentric coordinates (u, v); a ray misses unless it
-    // lands inside all three edges (u >= 0, v >= 0, u + v <= 1).
-    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
-        let dir_cross_e2 = ray.direction.cross(self.e2);
-        let det = self.e1.dot(dir_cross_e2);
-        // A determinant near zero means the ray is parallel to the triangle.
-        if det.abs() < EPSILON {
-            return Intersections::new(vec![]);
-        }
-
-        let f = 1.0 / det;
-        let p1_to_origin = ray.origin - self.p1;
-        let u = f * p1_to_origin.dot(dir_cross_e2);
-        if u < 0.0 || u > 1.0 {
-            return Intersections::new(vec![]);
-        }
-
-        let origin_cross_e1 = p1_to_origin.cross(self.e1);
-        let v = f * ray.direction.dot(origin_cross_e1);
-        if v < 0.0 || (u + v) > 1.0 {
-            return Intersections::new(vec![]);
-        }
-
-        let t = f * self.e2.dot(origin_cross_e1);
-        Intersections::new(vec![Intersection::new(t, object_id)])
-    }
-    // Flat surface: the same normal everywhere, ignoring the point.
-    fn local_normal_at(&self, _point: &Point) -> Vector {
-        self.normal
-    }
+// Flat surface: the same precomputed normal everywhere, ignoring the point.
+pub fn triangle_normal_at(prim: &Primitive) -> Vector {
+    prim.normal
 }
 
-// A triangle that fakes a curved surface by interpolating a normal across its
-// face from a normal stored at each vertex (Phong/"smooth" shading). The hit
-// test is identical to the flat triangle's, but it records the barycentric
-// (u, v) of the hit so the normal can be blended at shading time.
-#[derive(Debug, PartialEq, Clone)]
-pub struct SmoothTriangle {
-    pub transform: TransformData,
-    material: Material,
-    pub p1: Point,
-    pub p2: Point,
-    pub p3: Point,
-    pub n1: Vector,
-    pub n2: Vector,
-    pub n3: Vector,
-    pub e1: Vector,
-    pub e2: Vector,
-}
-
-impl SmoothTriangle {
-    pub fn new(p1: Point, p2: Point, p3: Point, n1: Vector, n2: Vector, n3: Vector) -> Self {
-        SmoothTriangle {
-            transform: TransformData::default(),
-            material: Material::default(),
-            p1,
-            p2,
-            p3,
-            n1,
-            n2,
-            n3,
-            e1: p2 - p1,
-            e2: p3 - p1,
-        }
-    }
-}
-
-impl HasMaterial for SmoothTriangle {
-    fn set_material(&mut self, material: Material) -> () {
-        self.material = material;
-    }
-    fn get_material(&self) -> Material {
-        self.material.clone()
-    }
-}
-
-impl Intersects for SmoothTriangle {
-    // Identical Möller–Trumbore test to the flat triangle, except the surviving
-    // hit keeps its (u, v) so `local_normal_at_uv` can interpolate the normal.
-    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
-        let dir_cross_e2 = ray.direction.cross(self.e2);
-        let det = self.e1.dot(dir_cross_e2);
-        if det.abs() < EPSILON {
-            return Intersections::new(vec![]);
-        }
-
-        let f = 1.0 / det;
-        let p1_to_origin = ray.origin - self.p1;
-        let u = f * p1_to_origin.dot(dir_cross_e2);
-        if u < 0.0 || u > 1.0 {
-            return Intersections::new(vec![]);
-        }
-
-        let origin_cross_e1 = p1_to_origin.cross(self.e1);
-        let v = f * ray.direction.dot(origin_cross_e1);
-        if v < 0.0 || (u + v) > 1.0 {
-            return Intersections::new(vec![]);
-        }
-
-        let t = f * self.e2.dot(origin_cross_e1);
-        Intersections::new(vec![Intersection::with_uv(t, object_id, u, v)])
-    }
-    // Blend the three vertex normals by the hit's barycentric weights. The result
-    // is normalized when it is lifted into world space by `World::normal_to_world`.
-    fn local_normal_at_uv(&self, _point: &Point, u: Number, v: Number) -> Vector {
-        self.n2 * u + self.n3 * v + self.n1 * (1.0 - u - v)
-    }
-    // Without a hit there is no u/v, so fall back to the first vertex normal.
-    fn local_normal_at(&self, point: &Point) -> Vector {
-        self.local_normal_at_uv(point, 0.0, 0.0)
-    }
+// Blend the three vertex normals by the hit's barycentric weights. The result
+// is normalized when it is lifted into world space by `World::normal_to_world`.
+// Without a hit there is no u/v (both zero), so it falls back to the first
+// vertex normal.
+pub fn smooth_triangle_local_normal_at_uv(prim: &Primitive, u: Number, v: Number) -> Vector {
+    prim.n2 * u + prim.n3 * v + prim.n1 * (1.0 - u - v)
 }
 
 #[cfg(test)]
@@ -168,8 +57,8 @@ mod tests {
     use super::*;
 
     // The three corners used by most of the book's triangle tests.
-    fn example_triangle() -> Triangle {
-        Triangle::new(
+    fn example_triangle() -> Primitive {
+        Primitive::triangle(
             Point {
                 x: 0.0,
                 y: 1.0,
@@ -220,21 +109,9 @@ mod tests {
     #[test]
     fn finding_the_normal_on_a_triangle() {
         let t = example_triangle();
-        let n1 = t.local_normal_at(&Point {
-            x: 0.0,
-            y: 0.5,
-            z: 0.0,
-        });
-        let n2 = t.local_normal_at(&Point {
-            x: -0.5,
-            y: 0.75,
-            z: 0.0,
-        });
-        let n3 = t.local_normal_at(&Point {
-            x: 0.5,
-            y: 0.25,
-            z: 0.0,
-        });
+        let n1 = triangle_normal_at(&t);
+        let n2 = triangle_normal_at(&t);
+        let n3 = triangle_normal_at(&t);
         assert_eq!(n1, t.normal);
         assert_eq!(n2, t.normal);
         assert_eq!(n3, t.normal);
@@ -255,7 +132,7 @@ mod tests {
                 z: 0.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_eq!(xs.count(), 0);
     }
 
@@ -274,7 +151,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_eq!(xs.count(), 0);
     }
 
@@ -293,7 +170,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_eq!(xs.count(), 0);
     }
 
@@ -312,7 +189,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_eq!(xs.count(), 0);
     }
 
@@ -331,15 +208,15 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_eq!(xs.count(), 1);
         assert_almost_eq!(xs[0].t, 2.0);
     }
 
     // The book's standard smooth triangle: same corners as the flat one, with a
     // normal pointing "outward" at each vertex.
-    fn example_smooth_triangle() -> SmoothTriangle {
-        SmoothTriangle::new(
+    fn example_smooth_triangle() -> Primitive {
+        Primitive::smooth_triangle(
             Point {
                 x: 0.0,
                 y: 1.0,
@@ -399,7 +276,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = t.local_intersect(&r, 0);
+        let xs = triangle_intersect(&t, &r, 0);
         assert_almost_eq!(xs[0].u, 0.45);
         assert_almost_eq!(xs[0].v, 0.25);
     }
@@ -409,7 +286,7 @@ mod tests {
         use crate::worlds::World;
         let mut w = World::new();
         let t = example_smooth_triangle();
-        w.objects.push(Shape::SmoothTriangle(t));
+        w.objects.push(t);
         // Resolve the normal through the world, which interpolates from u/v and
         // normalizes the result.
         let n = w.normal_at_uv(
@@ -432,7 +309,7 @@ mod tests {
         use crate::worlds::World;
         let mut w = World::new();
         let t = example_smooth_triangle();
-        w.objects.push(Shape::SmoothTriangle(t));
+        w.objects.push(t);
         let i = Intersection::with_uv(1.0, 0, 0.45, 0.25);
         let r = Ray {
             origin: Point {

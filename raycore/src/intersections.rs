@@ -282,7 +282,7 @@ mod tests {
             },
         };
         let mut w = World::new();
-        let shape = Shape::sphere();
+        let shape = Primitive::sphere();
         w.objects.append(&mut vec![shape]);
         let i = Intersection::new(4.0, 0);
         let comps = i.prepare_computations(&r, &w, &Intersections::new(vec![]));
@@ -327,7 +327,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let shape = Shape::sphere();
+        let shape = Primitive::sphere();
         let i = Intersection::new(4.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
@@ -348,7 +348,7 @@ mod tests {
                 z: 1.0,
             },
         };
-        let shape = Shape::sphere();
+        let shape = Primitive::sphere();
         let i = Intersection::new(1.0, 0);
         let mut w = World::new();
         w.objects.append(&mut vec![shape]);
@@ -383,19 +383,19 @@ mod tests {
     fn finding_n1_and_n2_at_various_intersections() {
         let mut material = Material::default();
         material.set_refractive_index(1.5);
-        let a = Shape::with(
-            Shape::glass_sphere,
+        let a = Primitive::with(
+            Primitive::glass_sphere,
             scaling(2.0, 2.0, 2.0),
             material.clone(),
         );
         material.set_refractive_index(2.0);
-        let b = Shape::with(
-            Shape::glass_sphere,
+        let b = Primitive::with(
+            Primitive::glass_sphere,
             translation(0.0, 0.0, -0.25),
             material.clone(),
         );
         material.set_refractive_index(2.5);
-        let c = Shape::with(Shape::glass_sphere, translation(0.0, 0.0, 0.25), material);
+        let c = Primitive::with(Primitive::glass_sphere, translation(0.0, 0.0, 0.25), material);
         let r = Ray {
             origin: Point {
                 x: 0.0,
@@ -446,8 +446,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let shape = Shape::with(
-            Shape::glass_sphere,
+        let shape = Primitive::with(
+            Primitive::glass_sphere,
             translation(0.0, 0.0, 1.0),
             Material::default(),
         );
@@ -462,7 +462,7 @@ mod tests {
     }
     #[test]
     fn the_schlick_approximation_under_total_internal_reflection() {
-        let shape = Shape::glass_sphere();
+        let shape = Primitive::glass_sphere();
         let r = Ray {
             origin: Point {
                 x: 0.0,
@@ -487,7 +487,7 @@ mod tests {
     }
     #[test]
     fn the_schlick_approximation_with_a_perpendicular_viewing_angle() {
-        let shape = Shape::glass_sphere();
+        let shape = Primitive::glass_sphere();
         let r = Ray {
             origin: Point {
                 x: 0.0,
@@ -509,7 +509,7 @@ mod tests {
     }
     #[test]
     fn the_schlick_approximation_with_small_angle_and_n2_gt_n1() {
-        let shape = Shape::glass_sphere();
+        let shape = Primitive::glass_sphere();
         let r = Ray {
             origin: Point {
                 x: 0.0,

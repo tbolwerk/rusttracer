@@ -18,7 +18,7 @@ use crate::tuples::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
-    pub objects: Vec<Shape>,
+    pub objects: Vec<Primitive>,
     pub lights: Vec<Light>,
     // When true, a group culls its children against its bounding box before
     // recursing. Always correct to leave on; exposed only so a scene can render
@@ -51,13 +51,14 @@ impl World {
     }
     // Dispatch a ray to the arena object `id`. For a group, move the ray into
     // the group's space and recurse into its children. For a leaf, hand off to
-    // the primitive's own `Shape::intersect`, which applies the leaf's
+    // the primitive's own `Primitive::intersect`, which applies the leaf's
     // transform. Transforms therefore compose down the hierarchy exactly as in
     // the book's Group::intersect.
     pub fn intersect_object(&self, id: usize, ray: &Ray) -> Intersections {
-        match &self.objects[id] {
-            Shape::Group(group) => {
-                let local_ray = match self.objects[id].get_inverse_transform() {
+        let object = &self.objects[id];
+        match object.kind {
+            ShapeKind::Group => {
+                let local_ray = match object.get_inverse_transform() {
                     None => ray.clone(),
                     Some(inverse) => ray.transform(inverse),
                 };
@@ -66,27 +67,27 @@ impl World {
                 // all. `bounds` is None until `compute_bounds` runs, in which
                 // case we fall through and test every child as before.
                 if self.use_bounds {
-                    if let Some(bounds) = &group.bounds {
+                    if let Some(bounds) = &object.bounds {
                         if !bounds.intersects(&local_ray) {
                             return Intersections::new(vec![]);
                         }
                     }
                 }
                 let mut xs = Intersections::new(vec![]);
-                for &child in &group.children {
+                for &child in &object.children {
                     xs.extend(self.intersect_object(child, &local_ray));
                 }
                 xs
             }
-            Shape::Csg(csg) => {
-                let local_ray = match self.objects[id].get_inverse_transform() {
+            ShapeKind::Csg => {
+                let local_ray = match object.get_inverse_transform() {
                     None => ray.clone(),
                     Some(inverse) => ray.transform(inverse),
                 };
                 // Same bounding-box cull as a group: miss the box, skip both
                 // children and the filtering entirely.
                 if self.use_bounds {
-                    if let Some(bounds) = &csg.bounds {
+                    if let Some(bounds) = &object.bounds {
                         if !bounds.intersects(&local_ray) {
                             return Intersections::new(vec![]);
                         }
@@ -95,11 +96,11 @@ impl World {
                 // Intersect both children, then keep only the hits the operation
                 // allows. `extend` re-sorts, so the combined list is in t-order,
                 // which `filter_intersections` relies on.
-                let mut xs = self.intersect_object(csg.left.unwrap(), &local_ray);
-                xs.extend(self.intersect_object(csg.right.unwrap(), &local_ray));
+                let mut xs = self.intersect_object(object.left.unwrap(), &local_ray);
+                xs.extend(self.intersect_object(object.right.unwrap(), &local_ray));
                 self.filter_intersections(id, xs)
             }
-            leaf => leaf.intersect(ray, id),
+            _ => object.intersect(ray, id),
         }
     }
     // Whether the subtree rooted at `node` contains the leaf `object`. A CSG uses
@@ -109,11 +110,15 @@ impl World {
         if node == object {
             return true;
         }
-        match &self.objects[node] {
-            Shape::Group(group) => group.children.iter().any(|&c| self.includes(c, object)),
-            Shape::Csg(csg) => {
-                csg.left.map_or(false, |l| self.includes(l, object))
-                    || csg.right.map_or(false, |r| self.includes(r, object))
+        let node_obj = &self.objects[node];
+        match node_obj.kind {
+            ShapeKind::Group => node_obj
+                .children
+                .iter()
+                .any(|&c| self.includes(c, object)),
+            ShapeKind::Csg => {
+                node_obj.left.map_or(false, |l| self.includes(l, object))
+                    || node_obj.right.map_or(false, |r| self.includes(r, object))
             }
             _ => false,
         }
@@ -123,8 +128,9 @@ impl World {
     // right children; for each hit, `intersection_allowed` decides if it survives,
     // then crossing that surface flips the corresponding inside flag.
     pub fn filter_intersections(&self, csg_id: usize, mut xs: Intersections) -> Intersections {
-        let (operation, left) = match &self.objects[csg_id] {
-            Shape::Csg(csg) => (csg.operation, csg.left.unwrap()),
+        let csg = &self.objects[csg_id];
+        let (operation, left) = match csg.kind {
+            ShapeKind::Csg => (csg.operation, csg.left.unwrap()),
             _ => return xs,
         };
         // The walk below depends on t-order, and the two children were appended
@@ -152,10 +158,11 @@ impl World {
     // not depend on `compute_bounds` having run or on arena id ordering, so it is
     // safe to call mid-`divide` while the hierarchy is being rebuilt.
     fn object_bounds(&self, id: usize) -> BoundingBox {
-        let children: Vec<usize> = match &self.objects[id] {
-            Shape::Group(group) => group.children.clone(),
-            Shape::Csg(csg) => [csg.left, csg.right].into_iter().flatten().collect(),
-            other => return other.local_bounds(),
+        let obj = &self.objects[id];
+        let children: Vec<usize> = match obj.kind {
+            ShapeKind::Group => obj.children.clone(),
+            ShapeKind::Csg => [obj.left, obj.right].into_iter().flatten().collect(),
+            _ => return obj.local_bounds(),
         };
         let mut bb = BoundingBox::empty();
         for child in children {
@@ -184,10 +191,11 @@ impl World {
     // Cache the box for `id` (if it is a group/CSG) and return its own-space box,
     // computing children first.
     fn compute_bounds_of(&mut self, id: usize) -> BoundingBox {
-        let children: Vec<usize> = match &self.objects[id] {
-            Shape::Group(group) => group.children.clone(),
-            Shape::Csg(csg) => [csg.left, csg.right].into_iter().flatten().collect(),
-            other => return other.local_bounds(),
+        let obj = &self.objects[id];
+        let children: Vec<usize> = match obj.kind {
+            ShapeKind::Group => obj.children.clone(),
+            ShapeKind::Csg => [obj.left, obj.right].into_iter().flatten().collect(),
+            _ => return obj.local_bounds(),
         };
         let mut bb = BoundingBox::empty();
         for child in children {
@@ -195,9 +203,9 @@ impl World {
             let child_transform = self.objects[child].get_transform();
             bb.add_box(&child_bounds.transform(child_transform));
         }
-        match &mut self.objects[id] {
-            Shape::Group(group) => group.bounds = Some(bb),
-            Shape::Csg(csg) => csg.bounds = Some(bb),
+        let obj = &mut self.objects[id];
+        match obj.kind {
+            ShapeKind::Group | ShapeKind::Csg => obj.bounds = Some(bb),
             _ => {}
         }
         bb
@@ -208,9 +216,10 @@ impl World {
     // `make_subgroup`). The book's `partition_children`.
     fn partition_children(&mut self, id: usize) -> (Vec<usize>, Vec<usize>) {
         let (left_box, right_box) = self.object_bounds(id).split();
-        let children: Vec<usize> = match &self.objects[id] {
-            Shape::Group(group) => group.children.clone(),
-            _ => return (vec![], vec![]),
+        let children: Vec<usize> = if self.objects[id].kind == ShapeKind::Group {
+            self.objects[id].children.clone()
+        } else {
+            return (vec![], vec![]);
         };
         let mut left = vec![];
         let mut right = vec![];
@@ -225,8 +234,8 @@ impl World {
                 kept.push(child);
             }
         }
-        if let Shape::Group(group) = &mut self.objects[id] {
-            group.children = kept;
+        if self.objects[id].kind == ShapeKind::Group {
+            self.objects[id].children = kept;
         }
         (left, right)
     }
@@ -234,16 +243,16 @@ impl World {
     // `make_subgroup`.
     fn make_subgroup(&mut self, id: usize, children: Vec<usize>) {
         let subgroup = self.objects.len();
-        self.objects.push(Shape::group());
+        self.objects.push(Primitive::group());
         self.objects[subgroup].set_parent(Some(id));
         for child in &children {
             self.objects[*child].set_parent(Some(subgroup));
         }
-        if let Shape::Group(sub) = &mut self.objects[subgroup] {
-            sub.children = children;
+        if self.objects[subgroup].kind == ShapeKind::Group {
+            self.objects[subgroup].children = children;
         }
-        if let Shape::Group(group) = &mut self.objects[id] {
-            group.children.push(subgroup);
+        if self.objects[id].kind == ShapeKind::Group {
+            self.objects[id].children.push(subgroup);
         }
     }
     // Recursively subdivide group `id` into a bounding-volume hierarchy: when a
@@ -252,9 +261,9 @@ impl World {
     // children to partition, so it just forwards `divide` to its two operands.
     // The book's `divide`. Run `compute_bounds` afterward to cache the new boxes.
     pub fn divide(&mut self, id: usize, threshold: usize) {
-        match &self.objects[id] {
-            Shape::Group(group) => {
-                if threshold <= group.children.len() {
+        match self.objects[id].kind {
+            ShapeKind::Group => {
+                if threshold <= self.objects[id].children.len() {
                     let (left, right) = self.partition_children(id);
                     if !left.is_empty() {
                         self.make_subgroup(id, left);
@@ -263,16 +272,13 @@ impl World {
                         self.make_subgroup(id, right);
                     }
                 }
-                let children = match &self.objects[id] {
-                    Shape::Group(group) => group.children.clone(),
-                    _ => vec![],
-                };
+                let children = self.objects[id].children.clone();
                 for child in children {
                     self.divide(child, threshold);
                 }
             }
-            Shape::Csg(csg) => {
-                let (left, right) = (csg.left, csg.right);
+            ShapeKind::Csg => {
+                let (left, right) = (self.objects[id].left, self.objects[id].right);
                 if let Some(left) = left {
                     self.divide(left, threshold);
                 }
@@ -354,7 +360,7 @@ impl World {
         self.normal_to_world(id, local_normal)
     }
     // Append a top-level object and return its arena id.
-    pub fn add_object(&mut self, object: Shape) -> usize {
+    pub fn add_object(&mut self, object: Primitive) -> usize {
         let id = self.objects.len();
         self.objects.push(object);
         id
@@ -362,12 +368,12 @@ impl World {
     // Append `child` and attach it to the group at `group_id`: set the child's
     // parent and record its id in the group's children. Mirrors the book's
     // Group::add_child.
-    pub fn add_child(&mut self, group_id: usize, mut child: Shape) -> usize {
+    pub fn add_child(&mut self, group_id: usize, mut child: Primitive) -> usize {
         child.set_parent(Some(group_id));
         let id = self.objects.len();
         self.objects.push(child);
-        if let Shape::Group(group) = &mut self.objects[group_id] {
-            group.children.push(id);
+        if self.objects[group_id].kind == ShapeKind::Group {
+            self.objects[group_id].children.push(id);
         }
         id
     }
@@ -378,9 +384,9 @@ impl World {
     pub fn set_csg_children(&mut self, csg_id: usize, left: usize, right: usize) {
         self.objects[left].set_parent(Some(csg_id));
         self.objects[right].set_parent(Some(csg_id));
-        if let Shape::Csg(csg) = &mut self.objects[csg_id] {
-            csg.left = Some(left);
-            csg.right = Some(right);
+        if self.objects[csg_id].kind == ShapeKind::Csg {
+            self.objects[csg_id].left = Some(left);
+            self.objects[csg_id].right = Some(right);
         }
     }
     pub fn shade_hit(&self, comps: Computations, remaining: usize) -> Color {
@@ -534,7 +540,7 @@ impl Default for World {
                 b: 1.0,
             },
         });
-        let mut s1 = Shape::sphere();
+        let mut s1 = Primitive::sphere();
         let mut m1: Material = Material::default();
         m1.set_color(Color {
             r: 0.8,
@@ -545,7 +551,7 @@ impl Default for World {
         m1.set_specular(0.2);
         s1.set_material(m1);
 
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
         s2.set_transform(TRANSFORM);
 
@@ -580,7 +586,7 @@ mod tests {
                 b: 1.0,
             },
         });
-        let mut s1 = Shape::sphere();
+        let mut s1 = Primitive::sphere();
         let mut m1 = Material::default();
         m1.set_color(Color {
             r: 0.8,
@@ -591,7 +597,7 @@ mod tests {
         m1.set_specular(0.2);
         s1.set_material(m1);
 
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         const TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5);
         s2.set_transform(TRANSFORM);
 
@@ -906,25 +912,25 @@ mod tests {
     #[test]
     fn root_of_walks_to_the_top_level_object() {
         let mut w = World::new();
-        let g1 = w.add_object(Shape::group());
-        let g2 = w.add_child(g1, Shape::group());
-        let s = w.add_child(g2, Shape::sphere());
+        let g1 = w.add_object(Primitive::group());
+        let g2 = w.add_child(g1, Primitive::group());
+        let s = w.add_child(g2, Primitive::sphere());
         assert_eq!(w.root_of(s), g1);
         assert_eq!(w.root_of(g2), g1);
         assert_eq!(w.root_of(g1), g1);
         // A lone root is its own root.
-        let lone = w.add_object(Shape::sphere());
+        let lone = w.add_object(Primitive::sphere());
         assert_eq!(w.root_of(lone), lone);
     }
 
     #[test]
     fn pickability_excludes_floors_and_the_sky() {
         let mut w = World::new();
-        let sphere = w.add_object(Shape::sphere()); // unit, extent 2 -> pickable
+        let sphere = w.add_object(Primitive::sphere()); // unit, extent 2 -> pickable
         assert!(w.is_pickable(sphere));
-        let plane = w.add_object(Shape::plane()); // infinite -> not pickable
+        let plane = w.add_object(Primitive::plane()); // infinite -> not pickable
         assert!(!w.is_pickable(plane));
-        let mut huge = Shape::sphere();
+        let mut huge = Primitive::sphere();
         huge.set_transform(scaling(1000.0, 1000.0, 1000.0)); // sky -> not pickable
         let sky = w.add_object(huge);
         assert!(!w.is_pickable(sky));
@@ -932,23 +938,24 @@ mod tests {
 
     // Helper: the children ids of the group at `id`.
     fn group_children(w: &World, id: usize) -> Vec<usize> {
-        match &w.objects[id] {
-            Shape::Group(g) => g.children.clone(),
-            _ => panic!("object {id} is not a group"),
+        if w.objects[id].kind == ShapeKind::Group {
+            w.objects[id].children.clone()
+        } else {
+            panic!("object {id} is not a group")
         }
     }
 
     #[test]
     fn partitioning_a_groups_children() {
         let mut w = World::new();
-        let g = w.add_object(Shape::group());
-        let mut s1 = Shape::sphere();
+        let g = w.add_object(Primitive::group());
+        let mut s1 = Primitive::sphere();
         s1.set_transform(translation(-2.0, 0.0, 0.0));
         let s1 = w.add_child(g, s1);
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         s2.set_transform(translation(2.0, 0.0, 0.0));
         let s2 = w.add_child(g, s2);
-        let s3 = w.add_child(g, Shape::sphere());
+        let s3 = w.add_child(g, Primitive::sphere());
         let (left, right) = w.partition_children(g);
         assert_eq!(group_children(&w, g), vec![s3]);
         assert_eq!(left, vec![s1]);
@@ -958,9 +965,9 @@ mod tests {
     #[test]
     fn creating_a_subgroup_from_a_list_of_children() {
         let mut w = World::new();
-        let g = w.add_object(Shape::group());
-        let s1 = w.add_object(Shape::sphere());
-        let s2 = w.add_object(Shape::sphere());
+        let g = w.add_object(Primitive::group());
+        let s1 = w.add_object(Primitive::sphere());
+        let s2 = w.add_object(Primitive::sphere());
         w.make_subgroup(g, vec![s1, s2]);
         let children = group_children(&w, g);
         assert_eq!(children.len(), 1);
@@ -970,14 +977,14 @@ mod tests {
     #[test]
     fn subdividing_a_group_partitions_its_children() {
         let mut w = World::new();
-        let g = w.add_object(Shape::group());
-        let mut s1 = Shape::sphere();
+        let g = w.add_object(Primitive::group());
+        let mut s1 = Primitive::sphere();
         s1.set_transform(translation(-2.0, -2.0, 0.0));
         let s1 = w.add_child(g, s1);
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         s2.set_transform(translation(-2.0, 2.0, 0.0));
         let s2 = w.add_child(g, s2);
-        let mut s3 = Shape::sphere();
+        let mut s3 = Primitive::sphere();
         s3.set_transform(scaling(4.0, 4.0, 4.0));
         let s3 = w.add_child(g, s3);
         w.divide(g, 1);
@@ -995,23 +1002,23 @@ mod tests {
     #[test]
     fn subdividing_a_group_with_too_few_children() {
         let mut w = World::new();
-        let subgroup = w.add_object(Shape::group());
-        let mut s1 = Shape::sphere();
+        let subgroup = w.add_object(Primitive::group());
+        let mut s1 = Primitive::sphere();
         s1.set_transform(translation(-2.0, 0.0, 0.0));
         let s1 = w.add_child(subgroup, s1);
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         s2.set_transform(translation(2.0, 1.0, 0.0));
         let s2 = w.add_child(subgroup, s2);
-        let mut s3 = Shape::sphere();
+        let mut s3 = Primitive::sphere();
         s3.set_transform(translation(2.0, -1.0, 0.0));
         let s3 = w.add_child(subgroup, s3);
         // Hang the subgroup and a lone sphere under a parent group.
-        let g = w.add_object(Shape::group());
+        let g = w.add_object(Primitive::group());
         w.objects[subgroup].set_parent(Some(g));
-        if let Shape::Group(gg) = &mut w.objects[g] {
-            gg.children.push(subgroup);
+        if w.objects[g].kind == ShapeKind::Group {
+            w.objects[g].children.push(subgroup);
         }
-        let s4 = w.add_child(g, Shape::sphere());
+        let s4 = w.add_child(g, Primitive::sphere());
         w.divide(g, 3);
         // g has 2 < 3 children, so it is left intact, but the subgroup (3) splits.
         assert_eq!(group_children(&w, g), vec![subgroup, s4]);
@@ -1023,19 +1030,19 @@ mod tests {
     #[test]
     fn subdividing_a_csg_shapes_children() {
         let mut w = World::new();
-        let csg = w.add_object(Shape::csg(crate::csg::CsgOperation::Difference));
-        let left = w.add_object(Shape::group());
-        let mut s1 = Shape::sphere();
+        let csg = w.add_object(Primitive::csg(crate::csg::CsgOperation::Difference));
+        let left = w.add_object(Primitive::group());
+        let mut s1 = Primitive::sphere();
         s1.set_transform(translation(-1.5, 0.0, 0.0));
         let s1 = w.add_child(left, s1);
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         s2.set_transform(translation(1.5, 0.0, 0.0));
         let s2 = w.add_child(left, s2);
-        let right = w.add_object(Shape::group());
-        let mut s3 = Shape::sphere();
+        let right = w.add_object(Primitive::group());
+        let mut s3 = Primitive::sphere();
         s3.set_transform(translation(0.0, 0.0, -1.5));
         let s3 = w.add_child(right, s3);
-        let mut s4 = Shape::sphere();
+        let mut s4 = Primitive::sphere();
         s4.set_transform(translation(0.0, 0.0, 1.5));
         let s4 = w.add_child(right, s4);
         w.set_csg_children(csg, left, right);
@@ -1104,9 +1111,9 @@ mod tests {
             },
         });
         w.lights = vec![light];
-        let s1 = Shape::sphere();
+        let s1 = Primitive::sphere();
         const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 10.0);
-        let mut s2 = Shape::sphere();
+        let mut s2 = Primitive::sphere();
         s2.set_transform(TRANSFORM);
         let r = Ray {
             origin: Point {
@@ -1147,7 +1154,7 @@ mod tests {
                 z: 0.0,
             },
         };
-        let mut shape = Shape::sphere();
+        let mut shape = Primitive::sphere();
         const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 1.0);
         shape.set_transform(TRANSFORM);
         let i = Intersection::new(5.0, 0);
@@ -1190,7 +1197,7 @@ mod tests {
     #[test]
     fn the_reflected_color_for_a_reflective_material() {
         let mut w = World::default();
-        let mut shape = Shape::plane();
+        let mut shape = Primitive::plane();
         let mut material = Material::default();
         material.set_reflective(0.5);
         const TRANSFORM: Matrix<4, 4> = Matrix::identity().then(translation(0.0, -1.0, 0.0));
@@ -1222,7 +1229,7 @@ mod tests {
     #[test]
     fn shade_hit_with_a_reflective_material() {
         let mut w = World::default();
-        let mut shape = Shape::plane();
+        let mut shape = Primitive::plane();
         let mut material = shape.get_material().clone();
         material.set_reflective(0.5);
         shape.set_material(material);
@@ -1264,12 +1271,12 @@ mod tests {
             },
         )];
 
-        let mut lower = Shape::plane();
+        let mut lower = Primitive::plane();
         let mut lower_material = lower.get_material().clone();
         lower_material.set_reflective(1.0);
         lower.set_transform(translation(0.0, -1.0, 0.0));
         lower.set_material(lower_material);
-        let mut upper = Shape::plane();
+        let mut upper = Primitive::plane();
         let mut upper_material = upper.get_material().clone();
         upper_material.set_reflective(1.0);
         upper.set_transform(translation(0.0, 1.0, 0.0));
@@ -1328,7 +1335,7 @@ mod tests {
     #[test]
     fn the_refracted_color_at_the_maximum_recursive_depth() {
         let mut w = World::default();
-        w.objects[0] = Shape::glass_sphere();
+        w.objects[0] = Primitive::glass_sphere();
 
         let r = Ray {
             origin: Point {
@@ -1357,7 +1364,7 @@ mod tests {
     #[test]
     fn the_refracted_color_under_total_internal_reflection() {
         let mut w = World::default();
-        w.objects[0] = Shape::glass_sphere();
+        w.objects[0] = Primitive::glass_sphere();
 
         let r = Ray {
             origin: Point {
@@ -1394,10 +1401,10 @@ mod tests {
         a_material.set_ambient(1.0);
         a_material.set_pattern(Pattern::test_pattern());
 
-        let a = Shape::with(Shape::sphere, Matrix::identity(), a_material);
+        let a = Primitive::with(Primitive::sphere, Matrix::identity(), a_material);
 
         w.objects[0] = a;
-        w.objects[1] = Shape::glass_sphere();
+        w.objects[1] = Primitive::glass_sphere();
 
         let r = Ray {
             origin: Point {
@@ -1431,7 +1438,7 @@ mod tests {
         glass.set_transparency(0.5);
         glass.set_refractive_index(1.5);
 
-        let floor = Shape::with(Shape::plane, translation(0.0, -1.0, 0.0), glass);
+        let floor = Primitive::with(Primitive::plane, translation(0.0, -1.0, 0.0), glass);
         let mut ball_material = Material::default();
         ball_material.set_color(Color {
             r: 1.0,
@@ -1439,7 +1446,7 @@ mod tests {
             b: 0.0,
         });
         ball_material.set_ambient(0.5);
-        let ball = Shape::with(Shape::sphere, translation(0.0, -3.5, -0.5), ball_material);
+        let ball = Primitive::with(Primitive::sphere, translation(0.0, -3.5, -0.5), ball_material);
         w.objects.append(&mut vec![floor, ball]);
         let r = Ray {
             origin: Point {
@@ -1473,7 +1480,7 @@ mod tests {
         glass.set_reflective(0.5);
         glass.set_refractive_index(1.5);
 
-        let floor = Shape::with(Shape::plane, translation(0.0, -1.0, 0.0), glass);
+        let floor = Primitive::with(Primitive::plane, translation(0.0, -1.0, 0.0), glass);
         let mut ball_material = Material::default();
         ball_material.set_color(Color {
             r: 1.0,
@@ -1481,7 +1488,7 @@ mod tests {
             b: 0.0,
         });
         ball_material.set_ambient(0.5);
-        let ball = Shape::with(Shape::sphere, translation(0.0, -3.5, -0.5), ball_material);
+        let ball = Primitive::with(Primitive::sphere, translation(0.0, -3.5, -0.5), ball_material);
         w.objects.append(&mut vec![floor, ball]);
         let r = Ray {
             origin: Point {

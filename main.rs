@@ -13,10 +13,7 @@ pub use raycore::{
 
 // Reproduce the flat import surface the binary used before the split (only the
 // modules that were previously glob-imported).
-use cones::*;
 use csg::*;
-use cylinders::*;
-use groups::*;
 use lights::*;
 use materials::*;
 use matrices::*;
@@ -189,7 +186,7 @@ fn build_csg_world() -> World {
     ))];
 
     // Ambient sky sphere for soft fill and reflections.
-    let mut sky = Shape::sphere();
+    let mut sky = Primitive::sphere();
     let mut sky_material = Material::default();
     sky_material.set_color(Color {
         r: 0.55,
@@ -204,7 +201,7 @@ fn build_csg_world() -> World {
     world.add_object(sky);
 
     // Reflective checkered floor.
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let mut floor_pattern = Pattern::checker_pattern(
         Color {
@@ -252,14 +249,14 @@ fn build_csg_world() -> World {
 
     // CSG nodes are created before their children so each parent keeps a lower
     // arena id than its children, which `compute_bounds` relies on.
-    let hero = world.add_object(Shape::csg(CsgOperation::Difference));
+    let hero = world.add_object(Primitive::csg(CsgOperation::Difference));
 
     // left = rounded cube = Intersection(cube, slightly larger sphere)
-    let rounded = world.add_object(Shape::csg(CsgOperation::Intersection));
-    let mut cube = Shape::cube();
+    let rounded = world.add_object(Primitive::csg(CsgOperation::Intersection));
+    let mut cube = Primitive::cube();
     cube.set_material(shell.clone());
     let cube_id = world.add_object(cube);
-    let mut sphere = Shape::sphere();
+    let mut sphere = Primitive::sphere();
     sphere.set_transform(scaling(1.3, 1.3, 1.3));
     sphere.set_material(shell.clone());
     let sphere_id = world.add_object(sphere);
@@ -268,13 +265,19 @@ fn build_csg_world() -> World {
     // right = drill = Union of three finite cylinders, one per axis. Finite (not
     // infinite) so the CSG bounding box stays finite and cullable.
     let drill = |transform: Matrix<4, 4>| {
-        let mut c = Shape::Cylinder(Cylinder::new(-1.5, 1.5, false));
+        let mut c = {
+        let mut __c = Primitive::cylinder();
+        __c.minimum = -1.5;
+        __c.maximum = 1.5;
+        __c.closed = false;
+        __c
+    };
         c.set_transform(scaling(0.5, 1.0, 0.5).then(transform));
         c.set_material(gold.clone());
         c
     };
-    let bore = world.add_object(Shape::csg(CsgOperation::Union));
-    let bore_xy = world.add_object(Shape::csg(CsgOperation::Union));
+    let bore = world.add_object(Primitive::csg(CsgOperation::Union));
+    let bore_xy = world.add_object(Primitive::csg(CsgOperation::Union));
     let cyl_y = world.add_object(drill(Matrix::identity()));
     let cyl_x = world.add_object(drill(rotation_z(PI / 2.0)));
     world.set_csg_children(bore_xy, cyl_y, cyl_x);
@@ -326,7 +329,7 @@ fn build_bonus_world() -> World {
 
     // Floor: a planar-mapped UV checker (texture mapping), matte so the area
     // light's soft shadows read clearly.
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     floor_material.set_pattern(Pattern::texture_map(
         UvPattern::checkers(
@@ -351,7 +354,7 @@ fn build_bonus_world() -> World {
 
     // Front sphere: a spherical-mapped checker (texture mapping). It sits at the
     // focal plane, so it stays sharp while the others blur.
-    let mut globe = Shape::sphere();
+    let mut globe = Primitive::sphere();
     globe.set_transform(translation(0.0, 1.0, 0.0));
     let mut globe_material = Material::default();
     globe_material.set_pattern(Pattern::texture_map(
@@ -386,7 +389,7 @@ fn build_bonus_world() -> World {
         m.set_shininess(150.0);
         m
     };
-    let mut mid = Shape::sphere();
+    let mut mid = Primitive::sphere();
     mid.set_transform(translation(2.6, 1.0, 3.0));
     mid.set_material(solid(Color {
         r: 0.8,
@@ -394,7 +397,7 @@ fn build_bonus_world() -> World {
         b: 0.2,
     }));
     world.add_object(mid);
-    let mut far = Shape::sphere();
+    let mut far = Primitive::sphere();
     far.set_transform(translation(5.0, 1.0, 8.0));
     far.set_material(solid(Color {
         r: 1.0,
@@ -405,7 +408,7 @@ fn build_bonus_world() -> World {
 
     // A 6x6 cluster of small spheres, then subdivided into a bounding-volume
     // hierarchy with `divide` (bounding boxes & hierarchies).
-    let cluster = world.add_object(Shape::group());
+    let cluster = world.add_object(Primitive::group());
     let bead = solid(Color {
         r: 0.2,
         g: 0.7,
@@ -413,7 +416,7 @@ fn build_bonus_world() -> World {
     });
     for row in 0..6 {
         for col in 0..6 {
-            let mut s = Shape::sphere();
+            let mut s = Primitive::sphere();
             let x = -1.0 + col as Number * 0.4;
             let y = 0.18 + row as Number * 0.4;
             s.set_transform(scaling(0.18, 0.18, 0.18).then(translation(x, y, 0.0)));
@@ -695,7 +698,7 @@ fn load_teapot(smooth: bool) -> World {
     ))];
 
     // A large ambient-only sphere acts as a soft blue sky for fill and reflections.
-    let mut sky = Shape::sphere();
+    let mut sky = Primitive::sphere();
     let mut sky_material = Material::default();
     sky_material.set_color(Color {
         r: 0.55,
@@ -710,7 +713,7 @@ fn load_teapot(smooth: bool) -> World {
     world.add_object(sky);
 
     // A reflective checkered floor for the teapot to sit on and reflect into.
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let mut floor_pattern = Pattern::checker_pattern(
         Color {
@@ -822,7 +825,7 @@ fn build_marbles_world() -> World {
     // A large sphere lit purely by ambient acts as a soft sky, giving the glass
     // and metal marbles something colorful to refract and reflect. It is a
     // top-level object, so it is always tested and is not part of the grid.
-    let mut sky = Shape::sphere();
+    let mut sky = Primitive::sphere();
     let mut sky_material = Material::default();
     sky_material.set_color(Color {
         r: 0.55,
@@ -837,7 +840,7 @@ fn build_marbles_world() -> World {
     world.add_object(sky);
 
     // A reflective checkered floor that doubles the marbles in reflection.
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let mut floor_pattern = Pattern::checker_pattern(
         Color {
@@ -904,14 +907,14 @@ fn build_marbles_world() -> World {
 
     // One parent group holds one sub-group per row; each marble is a child of
     // its row group. compute_bounds() then gives every group a box.
-    let grid = world.add_object(Shape::group());
+    let grid = world.add_object(Primitive::group());
     let mut metal_index = 0;
     for row in 0..ROWS {
-        let row_group = world.add_child(grid, Shape::group());
+        let row_group = world.add_child(grid, Primitive::group());
         let z = (row as Number - (ROWS as Number - 1.0) / 2.0) * SPACING;
         for col in 0..COLS {
             let x = (col as Number - (COLS as Number - 1.0) / 2.0) * SPACING;
-            let mut marble = Shape::sphere();
+            let mut marble = Primitive::sphere();
             marble.set_transform(scaling(RADIUS, RADIUS, RADIUS).then(translation(x, RADIUS, z)));
             // Checkerboard of glass and metal across the grid.
             if (row + col) % 2 == 0 {
@@ -948,7 +951,7 @@ fn build_hexagon_world() -> World {
     ))];
 
     // A reflective floor so the hexagon casts and catches a little light.
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     floor_material.set_color(Color {
         r: 0.9,
@@ -976,13 +979,19 @@ fn build_hexagon_world() -> World {
     // place. Both are built in the side group's local space. Transform order
     // reads as "apply self first, then each .then(...)".
     let corner = || {
-        let mut c = Shape::sphere();
+        let mut c = Primitive::sphere();
         c.set_transform(scaling(0.25, 0.25, 0.25).then(translation(0.0, 0.0, -1.0)));
         c.set_material(material.clone());
         c
     };
     let edge = || {
-        let mut e = Shape::Cylinder(Cylinder::new(0.0, 1.0, false));
+        let mut e = {
+        let mut __c = Primitive::cylinder();
+        __c.minimum = 0.0;
+        __c.maximum = 1.0;
+        __c.closed = false;
+        __c
+    };
         e.set_transform(
             scaling(0.25, 1.0, 0.25)
                 .then(rotation_z(-PI / 2.0))
@@ -994,13 +1003,13 @@ fn build_hexagon_world() -> World {
     };
 
     // The parent group: tilt the ring forward and lift it above the floor.
-    let mut hex = Shape::group();
+    let mut hex = Primitive::group();
     hex.set_transform(rotation_x(-PI / 6.0).then(translation(0.0, 1.0, 0.0)));
     let hex = world.add_object(hex);
 
     // Six sides, each a group rotated a sixth of a turn around y.
     for n in 0..6 {
-        let mut side = Shape::group();
+        let mut side = Primitive::group();
         side.set_transform(rotation_y(n as Number * PI / 3.0));
         let side = world.add_child(hex, side);
         world.add_child(side, corner());
@@ -1103,7 +1112,7 @@ fn build_capitol_world() -> World {
 
     // Ground: a polished checkered stone plaza that faintly reflects the
     // building.
-    let mut ground = Shape::plane();
+    let mut ground = Primitive::plane();
     let mut ground_material = Material::default();
     let mut plaza = Pattern::checker_pattern(
         Color {
@@ -1129,7 +1138,7 @@ fn build_capitol_world() -> World {
     // A large enclosing sphere acts as a daytime sky. It is lit purely by its
     // high ambient term, so it glows an even blue regardless of the light, and
     // the reflective plaza and dome pick up its color.
-    let mut sky = Shape::sphere();
+    let mut sky = Primitive::sphere();
     let mut sky_material = Material::default();
     sky_material.set_color(Color {
         r: 0.55,
@@ -1142,49 +1151,67 @@ fn build_capitol_world() -> World {
     sky.set_material(sky_material);
     sky.set_transform(scaling(1000.0, 1000.0, 1000.0));
 
-    let mut objects: Vec<Shape> = vec![sky, ground];
+    let mut objects: Vec<Primitive> = vec![sky, ground];
 
     // Main facade: a long, low block spanning the full width.
-    let mut base = Shape::cube();
+    let mut base = Primitive::cube();
     base.set_material(marble.clone());
     base.set_transform(scaling(6.0, 1.2, 2.0).then(translation(0.0, 1.2, 0.0)));
     objects.push(base);
 
     // The two end wings (House and Senate), raised slightly above the facade.
     for sign in [-1.0, 1.0] {
-        let mut wing = Shape::cube();
+        let mut wing = Primitive::cube();
         wing.set_material(marble.clone());
         wing.set_transform(scaling(1.3, 1.4, 2.0).then(translation(sign * 4.5, 1.4, 0.0)));
         objects.push(wing);
     }
 
     // Central block that lifts the rotunda above the facade.
-    let mut center = Shape::cube();
+    let mut center = Primitive::cube();
     center.set_material(marble.clone());
     center.set_transform(scaling(2.0, 1.0, 2.0).then(translation(0.0, 3.4, 0.0)));
     objects.push(center);
 
     // The rotunda drum: a closed cylinder carrying the dome.
-    let mut drum = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+    let mut drum = {
+        let mut __c = Primitive::cylinder();
+        __c.minimum = 0.0;
+        __c.maximum = 1.0;
+        __c.closed = true;
+        __c
+    };
     drum.set_material(marble.clone());
     drum.set_transform(scaling(1.5, 1.3, 1.5).then(translation(0.0, 4.4, 0.0)));
     objects.push(drum);
 
     // The dome: a sphere scaled tall, sitting on the drum.
-    let mut dome = Shape::sphere();
+    let mut dome = Primitive::sphere();
     dome.set_material(dome_iron);
     dome.set_transform(scaling(1.5, 1.8, 1.5).then(translation(0.0, 5.7, 0.0)));
     objects.push(dome);
 
     // The lantern/cupola: a small closed cylinder atop the dome.
-    let mut lantern = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+    let mut lantern = {
+        let mut __c = Primitive::cylinder();
+        __c.minimum = 0.0;
+        __c.maximum = 1.0;
+        __c.closed = true;
+        __c
+    };
     lantern.set_material(marble.clone());
     lantern.set_transform(scaling(0.35, 0.6, 0.35).then(translation(0.0, 7.3, 0.0)));
     objects.push(lantern);
 
     // The Statue of Freedom: a bronze cone tapering to a point. Polished
     // metal: dark diffuse, strong specular highlight and real reflectivity.
-    let mut statue = Shape::Cone(Cone::new(-1.0, 0.0, true));
+    let mut statue = {
+        let mut __c = Primitive::cone();
+        __c.minimum = -1.0;
+        __c.maximum = 0.0;
+        __c.closed = true;
+        __c
+    };
     let mut statue_material = Material::default();
     statue_material.set_color(Color {
         r: 0.55,
@@ -1203,14 +1230,20 @@ fn build_capitol_world() -> World {
     // The east front colonnade: a row of columns under a pediment.
     let column_xs = [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4];
     for x in column_xs {
-        let mut column = Shape::Cylinder(Cylinder::new(0.0, 1.0, true));
+        let mut column = {
+        let mut __c = Primitive::cylinder();
+        __c.minimum = 0.0;
+        __c.maximum = 1.0;
+        __c.closed = true;
+        __c
+    };
         column.set_material(marble.clone());
         column.set_transform(scaling(0.18, 2.4, 0.18).then(translation(x, 0.0, -2.1)));
         objects.push(column);
     }
 
     // The pediment resting on the columns.
-    let mut pediment = Shape::cube();
+    let mut pediment = Primitive::cube();
     pediment.set_material(marble.clone());
     pediment.set_transform(scaling(2.8, 0.18, 0.35).then(translation(0.0, 2.6, -2.1)));
     objects.push(pediment);
@@ -1261,7 +1294,7 @@ fn chapter12() {
             b: 1.0,
         },
     ))];
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let pattern = Pattern::ring_pattern(
         Color {
@@ -1283,7 +1316,7 @@ fn chapter12() {
     });
     floor_material.set_specular(0.0);
     floor.set_material(floor_material);
-    let mut wall = Shape::plane();
+    let mut wall = Primitive::plane();
     wall.set_transform(
         Matrix::identity()
             .then(rotation_x(PI / 2.0))
@@ -1305,7 +1338,7 @@ fn chapter12() {
     ));
     wall.set_material(wall_material);
     // Cube
-    let mut cube = Shape::cube();
+    let mut cube = Primitive::cube();
     let mut cube_material = Material::default();
     cube_material.set_color(Color {
         r: 1.0,
@@ -1346,7 +1379,7 @@ fn build_glass_world() -> World {
     let mut world = World::new();
 
     // Floor - glass material
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     floor.set_transform(scaling(10.0, 0.01, 10.0));
     let mut floor_material = Material::default();
     floor_material.set_transparency(0.9);
@@ -1363,7 +1396,7 @@ fn build_glass_world() -> World {
     floor.set_material(floor_material);
 
     // Middle sphere
-    let mut middle = Shape::sphere();
+    let mut middle = Primitive::sphere();
     middle.set_transform(translation(-0.5, 1.0, 0.5));
     let mut middle_material = Material::default();
     middle_material.set_color(Color {
@@ -1377,7 +1410,7 @@ fn build_glass_world() -> World {
     middle.set_material(middle_material);
 
     // Right sphere
-    let mut right = Shape::sphere();
+    let mut right = Primitive::sphere();
     right.set_transform(scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5)));
     let mut right_material = Material::default();
     right_material.set_color(Color {
@@ -1390,7 +1423,7 @@ fn build_glass_world() -> World {
     right.set_material(right_material);
 
     // Left sphere
-    let mut left = Shape::sphere();
+    let mut left = Primitive::sphere();
     left.set_transform(scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75)));
     let left_material = Material::glass();
     /*
@@ -1451,7 +1484,7 @@ fn chapter11() {
 }
 fn chapter10() {
     let mut world = World::default();
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let pattern = Pattern::ring_pattern(
         Color {
@@ -1473,7 +1506,7 @@ fn chapter10() {
     });
     floor_material.set_specular(0.0);
     floor.set_material(floor_material);
-    let mut wall = Shape::plane();
+    let mut wall = Primitive::plane();
     wall.set_transform(
         Matrix::identity()
             .then(rotation_x(PI / 2.0))
@@ -1495,7 +1528,7 @@ fn chapter10() {
     ));
     wall.set_material(wall_material);
 
-    let mut middle = Shape::sphere();
+    let mut middle = Primitive::sphere();
     middle.set_transform(translation(-0.5, 1.0, 0.5));
     let mut middle_material = Material::default();
     middle_material.set_pattern(Pattern::checker_pattern(
@@ -1519,7 +1552,7 @@ fn chapter10() {
     middle_material.set_specular(0.3);
     middle.set_material(middle_material);
 
-    let mut right = Shape::sphere();
+    let mut right = Primitive::sphere();
     const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
     right.set_transform(RIGHT_TRANSFORM);
     let mut right_material = Material::default();
@@ -1544,7 +1577,7 @@ fn chapter10() {
     right_material.set_specular(0.3);
     right.set_material(right_material);
 
-    let mut left = Shape::sphere();
+    let mut left = Primitive::sphere();
     const LEFT_TRANSFORMATION: Matrix<4, 4> =
         scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
     left.set_transform(LEFT_TRANSFORMATION);
@@ -1602,7 +1635,7 @@ fn chapter10() {
 }
 fn chapter9() {
     let mut world = World::default();
-    let mut floor = Shape::plane();
+    let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     floor_material.set_color(Color {
         r: 1.0,
@@ -1612,7 +1645,7 @@ fn chapter9() {
     floor_material.set_specular(0.0);
     floor.set_material(floor_material);
 
-    let mut middle = Shape::sphere();
+    let mut middle = Primitive::sphere();
     middle.set_transform(translation(-0.5, 1.0, 0.5));
     let mut middle_material = Material::default();
     middle_material.set_color(Color {
@@ -1624,7 +1657,7 @@ fn chapter9() {
     middle_material.set_specular(0.3);
     middle.set_material(middle_material);
 
-    let mut right = Shape::sphere();
+    let mut right = Primitive::sphere();
     const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
     right.set_transform(RIGHT_TRANSFORM);
     let mut right_material = Material::default();
@@ -1637,7 +1670,7 @@ fn chapter9() {
     right_material.set_specular(0.3);
     right.set_material(right_material);
 
-    let mut left = Shape::sphere();
+    let mut left = Primitive::sphere();
     const LEFT_TRANSFORMATION: Matrix<4, 4> =
         scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
     left.set_transform(LEFT_TRANSFORMATION);
@@ -1694,7 +1727,7 @@ fn chapter9() {
 }
 
 fn chapter7() {
-    let mut floor = Shape::sphere();
+    let mut floor = Primitive::sphere();
     floor.set_transform(scaling(10.0, 0.01, 10.0));
     let mut material = Material::default();
     material.set_color(Color {
@@ -1705,7 +1738,7 @@ fn chapter7() {
     material.set_specular(0.0);
     floor.set_material(material.clone());
 
-    let mut left_wall = Shape::sphere();
+    let mut left_wall = Primitive::sphere();
     const LEFT_WALL_TRANSFORMATION: Matrix<4, 4> = scaling(10.0, 0.01, 10.0)
         .then(rotation_x(PI / 2.0))
         .then(rotation_y(-PI / 4.0))
@@ -1713,14 +1746,14 @@ fn chapter7() {
     left_wall.set_transform(LEFT_WALL_TRANSFORMATION);
     left_wall.set_material(material);
 
-    let mut right_wall = Shape::sphere();
+    let mut right_wall = Primitive::sphere();
     const RIGHT_WALL_TRANSFORMATION: Matrix<4, 4> = scaling(10.0, 0.01, 10.0)
         .then(rotation_x(PI / 2.0))
         .then(rotation_y(PI / 4.0))
         .then(translation(0.0, 0.0, 5.0));
     right_wall.set_transform(RIGHT_WALL_TRANSFORMATION);
 
-    let mut middle = Shape::sphere();
+    let mut middle = Primitive::sphere();
     middle.set_transform(translation(-0.5, 1.0, 0.5));
     let mut middle_material = Material::default();
     middle_material.set_color(Color {
@@ -1732,7 +1765,7 @@ fn chapter7() {
     middle_material.set_specular(0.3);
     middle.set_material(middle_material);
 
-    let mut right = Shape::sphere();
+    let mut right = Primitive::sphere();
     const RIGHT_TRANSFORM: Matrix<4, 4> = scaling(0.5, 0.5, 0.5).then(translation(1.5, 0.5, -0.5));
     right.set_transform(RIGHT_TRANSFORM);
     let mut right_material = Material::default();
@@ -1745,7 +1778,7 @@ fn chapter7() {
     right_material.set_specular(0.3);
     right.set_material(right_material);
 
-    let mut left = Shape::sphere();
+    let mut left = Primitive::sphere();
     const LEFT_TRANSFORMATION: Matrix<4, 4> =
         scaling(0.33, 0.33, 0.33).then(translation(-1.5, 0.33, -0.75));
     left.set_transform(LEFT_TRANSFORMATION);
@@ -1788,7 +1821,7 @@ fn chapter7() {
     }
 }
 fn chapter6() {
-    let mut sphere = Shape::sphere();
+    let mut sphere = Primitive::sphere();
     let mut material = Material::default();
     let color = Color {
         r: 1.0,
@@ -1874,7 +1907,7 @@ fn chapter5() {
     const HALF: Number = WALL_SIZE / 2.0;
     let mut canvas: Canvas<CANVAS_PIXELS, CANVAS_PIXELS> = Canvas::new(255);
     let color = Pixel::red();
-    let mut shape = Shape::sphere();
+    let mut shape = Primitive::sphere();
     const TRANSFORM: Matrix<4, 4> = Matrix::identity()
         .then(scaling(0.5, 1.0, 1.0))
         .then(rotation_z(PI / 6.0))

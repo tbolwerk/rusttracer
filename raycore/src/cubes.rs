@@ -1,97 +1,74 @@
 use crate::intersections::*;
-use crate::materials::*;
 use crate::rays::*;
-use crate::shapes::*;
 use crate::tuples::*;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Cube {
-    pub transform: TransformData,
-    material: Material,
-}
+// The axis-aligned unit cube spans [-1, 1] on every axis. The slab method tests
+// the ray against each pair of parallel faces and keeps the overlapping range.
+pub fn cube_intersect(ray: &Ray, object_id: usize) -> Intersections {
+    fn check_axis(origin: Number, direction: Number) -> (Number, Number) {
+        let tmin_numerator = -1 as Number - origin;
+        let tmax_numerator = 1 as Number - origin;
 
-impl Default for Cube {
-    fn default() -> Self {
-        Self {
-            transform: TransformData::default(),
-            material: Material::default(),
+        let tmin;
+        let tmax;
+
+        if direction.abs() >= EPSILON {
+            tmin = tmin_numerator / direction;
+            tmax = tmax_numerator / direction;
+        } else {
+            tmin = tmin_numerator * Number::MAX;
+            tmax = tmax_numerator * Number::MAX;
         }
-    }
-}
-
-impl HasMaterial for Cube {
-    fn set_material(&mut self, material: Material) -> () {
-        self.material = material;
-    }
-    fn get_material(&self) -> Material {
-        self.material.clone()
-    }
-}
-
-impl Intersects for Cube {
-    fn local_intersect(&self, ray: &Ray, object_id: usize) -> Intersections {
-        fn check_axis(origin: Number, direction: Number) -> (Number, Number) {
-            let tmin_numerator = -1 as Number - origin;
-            let tmax_numerator = 1 as Number - origin;
-
-            let tmin;
-            let tmax;
-
-            if direction.abs() >= EPSILON {
-                tmin = tmin_numerator / direction;
-                tmax = tmax_numerator / direction;
-            } else {
-                tmin = tmin_numerator * Number::MAX;
-                tmax = tmax_numerator * Number::MAX;
-            }
-
-            if tmin > tmax {
-                return (tmax, tmin);
-            }
-            (tmin, tmax)
-        }
-
-        let (xtmin, xtmax) = check_axis(ray.origin.x, ray.direction.x);
-        let (ytmin, ytmax) = check_axis(ray.origin.y, ray.direction.y);
-        let (ztmin, ztmax) = check_axis(ray.origin.z, ray.direction.z);
-
-        let tmin = xtmin.max(ytmin).max(ztmin);
-        let tmax = xtmax.min(ytmax).min(ztmax);
 
         if tmin > tmax {
-            return Intersections::new(vec![]);
+            return (tmax, tmin);
         }
-
-        Intersections::new(vec![
-            Intersection::new(tmin, object_id),
-            Intersection::new(tmax, object_id),
-        ])
+        (tmin, tmax)
     }
-    fn local_normal_at(&self, point: &Point) -> Vector {
-        let x = point.x().abs();
-        let y = point.y().abs();
-        let z = point.z().abs();
-        let maxc = x.max(y).max(z);
 
-        if maxc == x {
-            return Vector {
-                x: point.x(),
-                y: 0.0,
-                z: 0.0,
-            };
-        }
-        if maxc == y {
-            return Vector {
-                x: 0.0,
-                y: point.y(),
-                z: 0.0,
-            };
-        }
-        Vector {
-            x: 0.0,
+    let (xtmin, xtmax) = check_axis(ray.origin.x, ray.direction.x);
+    let (ytmin, ytmax) = check_axis(ray.origin.y, ray.direction.y);
+    let (ztmin, ztmax) = check_axis(ray.origin.z, ray.direction.z);
+
+    let tmin = xtmin.max(ytmin).max(ztmin);
+    let tmax = xtmax.min(ytmax).min(ztmax);
+
+    if tmin > tmax {
+        return Intersections::new(vec![]);
+    }
+
+    Intersections::new(vec![
+        Intersection::new(tmin, object_id),
+        Intersection::new(tmax, object_id),
+    ])
+}
+
+// The cube's normal points along whichever axis the point's coordinate is
+// largest in magnitude, i.e. the face it lies on.
+pub fn cube_normal_at(point: &Point) -> Vector {
+    let x = point.x().abs();
+    let y = point.y().abs();
+    let z = point.z().abs();
+    let maxc = x.max(y).max(z);
+
+    if maxc == x {
+        return Vector {
+            x: point.x(),
             y: 0.0,
-            z: point.z(),
-        }
+            z: 0.0,
+        };
+    }
+    if maxc == y {
+        return Vector {
+            x: 0.0,
+            y: point.y(),
+            z: 0.0,
+        };
+    }
+    Vector {
+        x: 0.0,
+        y: 0.0,
+        z: point.z(),
     }
 }
 
@@ -211,7 +188,6 @@ fn a_ray_intersects_a_cube() {
             t2: 1.0,
         },
     ];
-    let c = Cube::default();
     for Example {
         name,
         origin,
@@ -221,7 +197,7 @@ fn a_ray_intersects_a_cube() {
     } in examples
     {
         let r = Ray { origin, direction };
-        let xs = c.local_intersect(&r, 2);
+        let xs = cube_intersect(&r, 2);
         println!("Example {name}");
         assert_eq!(xs.count(), 2);
         assert_eq!(xs[0].t, t1);
@@ -309,10 +285,9 @@ fn a_ray_misses_a_cube() {
             },
         },
     ];
-    let c = Cube::default();
     for Example { origin, direction } in examples {
         let ray = Ray { origin, direction };
-        let xs = c.local_intersect(&ray, 0);
+        let xs = cube_intersect(&ray, 0);
         assert_eq!(xs.count(), 0);
     }
 }
@@ -421,9 +396,8 @@ fn the_normal_on_the_surface_of_a_cube() {
             },
         },
     ];
-    let c = Cube::default();
     for Example { point, normal } in examples {
-        let expected_normal = c.local_normal_at(&point);
+        let expected_normal = cube_normal_at(&point);
         assert_eq!(normal, expected_normal);
     }
 }
