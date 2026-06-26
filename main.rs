@@ -55,6 +55,10 @@ mod camera;
 use camera::*;
 mod viewport;
 use viewport::{Scene, Viewport, DISP_H, DISP_W, MOVE_DEPTH, STILL_DEPTH};
+// GPU backend (wgpu dispatch of the SPIR-V shader). Only with `--features gpu`;
+// see gpu/README.md. Exposes `gpu::render_gpu(&World, &Cam) -> Vec<u32>`.
+#[cfg(feature = "gpu")]
+mod gpu;
 
 use std::time::Instant;
 

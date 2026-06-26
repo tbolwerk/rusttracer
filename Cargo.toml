@@ -1,4 +1,7 @@
 [workspace]
+# The rust-gpu shader crate (gpu/shader) is intentionally NOT a workspace member:
+# it builds with its own rust-gpu toolchain to a SPIR-V target, separately from
+# this host workspace. See gpu/README.md.
 members = ["raycore"]
 
 [package]
@@ -10,11 +13,21 @@ edition = "2021"
 [profile.release]
 debug = true
 
+[features]
+# `--features gpu` enables the wgpu backend (gpu.rs) that uploads the scene and
+# dispatches the precompiled SPIR-V shader. Off by default: the pure-CPU build
+# stays free of the wgpu/pollster dependency tree.
+gpu = ["dep:wgpu", "dep:pollster"]
+
 [dependencies]
 rayon = "1.9"
 minifb = "0.27"
 # The shared CPU/GPU ray-tracing core (math + renderer). Single source of truth.
+# The host uses its `std` feature; the GPU shader depends on it with no features.
 raycore = { path = "raycore" }
+# GPU backend, only with `--features gpu`.
+wgpu = { version = "0.20", optional = true }
+pollster = { version = "0.3", optional = true }
 
 [[bin]]
 name = "rusttracer"

@@ -1,0 +1,21 @@
+[package]
+name = "raycore-shader"
+version = "0.1.0"
+edition = "2021"
+
+# rust-gpu compiles this crate to a SPIR-V "dylib". It is a compute shader that,
+# per invocation (one pixel), calls the SAME raycore::render::pixel_color the CPU
+# host uses. It depends on raycore with NO default features, i.e. the no_std,
+# heap-free, recursion-free core.
+[lib]
+crate-type = ["dylib", "lib"]
+
+[dependencies]
+# Pin spirv-std to the exact version your rust-gpu / cargo-gpu toolchain expects;
+# 0.9 is a placeholder. See gpu/README.md.
+spirv-std = "0.9"
+raycore = { path = "../../raycore", default-features = false }
+
+# rust-gpu needs the const-generics feature raycore uses; nothing else here.
+[features]
+default = []
