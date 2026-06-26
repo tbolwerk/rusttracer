@@ -2,6 +2,7 @@ use core::ops::Mul;
 
 use crate::tuples::*;
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const ROWS: usize, const COLS: usize> {
     data: [[Number; COLS]; ROWS],

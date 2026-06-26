@@ -18,6 +18,7 @@ const fn black() -> Color {
 // Flat tagged struct for rust-gpu/SPIR-V compatibility:
 //   kind 0 = checkers (uses width/height/a/b)
 //   kind 1 = align_check (uses main/ul/ur/bl/br)
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UvFace {
     pub kind: u32,

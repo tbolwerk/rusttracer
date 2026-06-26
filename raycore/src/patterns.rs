@@ -23,6 +23,7 @@ const fn black() -> Color {
 //   5 = texture  (uv + mapping)
 //   6 = cube     (faces[6])
 //   7 = test
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pattern {
     pub kind: u32,

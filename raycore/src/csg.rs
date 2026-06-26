@@ -5,6 +5,7 @@
 // children and then keeps only the allowed hits via `filter_intersections`. The
 // node's data (operation, left, right, bounds) lives in the flat `Primitive`
 // struct; only the operation enum and the rule helper remain here.
+#[repr(u32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CsgOperation {
     Union,        // everything in either shape; the shared interior wall vanishes
@@ -88,8 +89,8 @@ mod tests {
         let csg = &w.objects[c];
         assert_eq!(csg.kind, ShapeKind::Csg);
         assert_eq!(csg.operation, CsgOperation::Union);
-        assert_eq!(csg.left, Some(s1));
-        assert_eq!(csg.right, Some(s2));
+        assert_eq!(csg.left(), Some(s1));
+        assert_eq!(csg.right(), Some(s2));
         // The children point back up at the CSG, as the book's `csg()` arranges.
         assert_eq!(w.objects[s1].parent(), Some(c));
         assert_eq!(w.objects[s2].parent(), Some(c));

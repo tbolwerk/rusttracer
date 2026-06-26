@@ -6,6 +6,7 @@ use crate::tuples::*;
 // A group can test a ray against its enclosing box first and, on a miss, skip
 // every child at once instead of intersecting each primitive. This is the
 // optimization from the book's "Bounding boxes and hierarchies" bonus chapter.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoundingBox {
     pub min: Point,

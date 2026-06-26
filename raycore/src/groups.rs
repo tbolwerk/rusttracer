@@ -125,7 +125,7 @@ mod tests {
         w.add_child(g, s);
         w.compute_bounds();
         // unit sphere at x=3 spans x in [2,4], y and z in [-1,1]
-        let bounds = w.objects[g].bounds.expect("bounds should be computed");
+        let bounds = w.objects[g].bounds().expect("bounds should be computed");
         assert_eq!(
             bounds.min,
             Point {

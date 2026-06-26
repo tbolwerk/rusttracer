@@ -11,6 +11,7 @@ use crate::worlds::Scene;
 // silently dropped (`push` debug-asserts to surface overflow in debug builds).
 pub const MAX_XS: usize = 256;
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Intersection {
     pub t: Number,

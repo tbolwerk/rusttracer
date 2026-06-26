@@ -8,6 +8,7 @@ use crate::tuples::*;
 //       cell and averaged, so an occluder casts a soft penumbra rather than a hard
 //       edge. `uvec`/`vvec` are the per-cell step vectors and `position` is the
 //       rectangle's center (used where a single point is needed).
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Light {
     pub kind: u32, // 0 = point, 1 = area

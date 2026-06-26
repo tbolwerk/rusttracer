@@ -100,18 +100,21 @@ pub trait Tuple {
         }
     }
 }
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Vector {
     pub x: Number,
     pub y: Number,
     pub z: Number,
 }
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Point {
     pub x: Number,
     pub y: Number,
     pub z: Number,
 }
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
     pub r: Number,

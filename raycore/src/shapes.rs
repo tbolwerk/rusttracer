@@ -21,6 +21,7 @@ use crate::{
 // instead of an enum carrying per-shape data; all the data now lives in the
 // flat `Primitive` struct alongside the tag. This keeps the type a plain
 // data-only struct, which the rust-gpu/SPIR-V backend can handle.
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShapeKind {
     Sphere,
@@ -36,7 +37,8 @@ pub enum ShapeKind {
 
 // A single shape, flat. Every field for every kind lives here; a given kind
 // only reads the fields it cares about and leaves the rest at their defaults.
-#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+#[derive(Debug, Clone)]
 pub struct Primitive {
     pub kind: ShapeKind,
     pub transform: TransformData,
@@ -61,12 +63,53 @@ pub struct Primitive {
     // primitive. The logical adjacency is kept in `World::children`.
     pub child_start: u32,
     pub child_count: u32,
-    // csg
+    // csg. left/right are arena indices into `World::objects`; the sentinel
+    // `u32::MAX` means "unset" (no child). The Option-returning accessors
+    // `left()`/`right()` translate this for the rest of the code.
     pub operation: CsgOperation,
-    pub left: Option<usize>,
-    pub right: Option<usize>,
-    // cached group/csg bounds
-    pub bounds: Option<BoundingBox>,
+    pub left: u32,
+    pub right: u32,
+    // cached group/csg bounds. `has_bounds` is the sentinel flag standing in for
+    // the old `Option`: when false `bounds` is meaningless. Use `bounds()` /
+    // `set_bounds()` instead of touching the fields directly.
+    pub bounds: BoundingBox,
+    pub has_bounds: bool,
+}
+
+// Sentinel for `left`/`right`: no child attached. (CSG nodes set both; every
+// other kind leaves them at this.)
+const NO_CHILD: u32 = u32::MAX;
+
+// Hand-written to mirror the old `Option<BoundingBox>` field: the cached bounds
+// only participate in equality when both sides actually have them. An unset box
+// is `BoundingBox::empty()` (min +inf / max -inf), and the tolerant `Point`
+// equality computes `inf - inf = NaN`, which compares unequal, so deriving
+// `PartialEq` would make two equal "no-bounds" primitives compare unequal. The
+// `bounds()` accessor returns `None` in that case, matching the old behavior.
+impl PartialEq for Primitive {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.transform == other.transform
+            && self.material == other.material
+            && self.minimum == other.minimum
+            && self.maximum == other.maximum
+            && self.closed == other.closed
+            && self.p1 == other.p1
+            && self.p2 == other.p2
+            && self.p3 == other.p3
+            && self.e1 == other.e1
+            && self.e2 == other.e2
+            && self.normal == other.normal
+            && self.n1 == other.n1
+            && self.n2 == other.n2
+            && self.n3 == other.n3
+            && self.child_start == other.child_start
+            && self.child_count == other.child_count
+            && self.operation == other.operation
+            && self.left == other.left
+            && self.right == other.right
+            && self.bounds() == other.bounds()
+    }
 }
 
 impl Primitive {
@@ -102,9 +145,10 @@ impl Primitive {
             child_start: 0,
             child_count: 0,
             operation: CsgOperation::Union,
-            left: None,
-            right: None,
-            bounds: None,
+            left: NO_CHILD,
+            right: NO_CHILD,
+            bounds: BoundingBox::empty(),
+            has_bounds: false,
         }
     }
     pub fn sphere() -> Primitive {
@@ -187,6 +231,40 @@ impl Primitive {
     }
     pub fn set_parent(&mut self, parent: Option<usize>) {
         self.transform.set_parent(parent)
+    }
+    // CSG children, as Option<usize> over the flat `u32` sentinel fields. The
+    // rest of the code keeps using these instead of the raw fields.
+    pub fn left(&self) -> Option<usize> {
+        if self.left == NO_CHILD {
+            None
+        } else {
+            Some(self.left as usize)
+        }
+    }
+    pub fn right(&self) -> Option<usize> {
+        if self.right == NO_CHILD {
+            None
+        } else {
+            Some(self.right as usize)
+        }
+    }
+    pub fn set_left(&mut self, id: usize) {
+        self.left = id as u32;
+    }
+    pub fn set_right(&mut self, id: usize) {
+        self.right = id as u32;
+    }
+    // Cached group/CSG bounds, as Option over the `has_bounds` sentinel.
+    pub fn bounds(&self) -> Option<&BoundingBox> {
+        if self.has_bounds {
+            Some(&self.bounds)
+        } else {
+            None
+        }
+    }
+    pub fn set_bounds(&mut self, bounds: BoundingBox) {
+        self.bounds = bounds;
+        self.has_bounds = true;
     }
     // The shape's normal in its own object space. Lifting it into world space
     // (accounting for any enclosing groups) is done by `World::normal_at`.
@@ -340,29 +418,42 @@ pub trait HasTransform {
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>>;
 }
 
+// Sentinel for `parent`: this shape is a top-level (root) object, with no
+// enclosing group.
+const NO_PARENT: u32 = u32::MAX;
+
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransformData {
     transform: Matrix<4, 4>,
-    inverse_transform: Option<Matrix<4, 4>>,
-    // Index into `World::objects` of the group this shape belongs to, if any.
-    // `None` means this is a top-level (root) shape. This replaces the book's
-    // upward parent pointer with an arena index.
-    parent: Option<usize>,
+    // The inverse of `transform`, always materialized (identity when the
+    // transform is the identity, which is the no-op the old `None` stood for).
+    // Flat, not Option, so the struct uploads to a SPIR-V buffer.
+    inverse: Matrix<4, 4>,
+    // Index into `World::objects` of the group this shape belongs to, or
+    // `NO_PARENT` for a top-level (root) shape. This replaces the book's upward
+    // parent pointer with an arena index; the Option API is preserved by
+    // `get_parent`/`set_parent`.
+    parent: u32,
 }
 
 impl TransformData {
-    pub const fn new(transform: Matrix<4, 4>, inverse_transform: Option<Matrix<4, 4>>) -> Self {
+    pub fn new(transform: Matrix<4, 4>, inverse_transform: Option<Matrix<4, 4>>) -> Self {
         Self {
             transform,
-            inverse_transform,
-            parent: None,
+            inverse: inverse_transform.unwrap_or(Matrix::identity()),
+            parent: NO_PARENT,
         }
     }
     pub fn get_parent(&self) -> Option<usize> {
-        self.parent
+        if self.parent == NO_PARENT {
+            None
+        } else {
+            Some(self.parent as usize)
+        }
     }
     pub fn set_parent(&mut self, parent: Option<usize>) {
-        self.parent = parent;
+        self.parent = parent.map(|x| x as u32).unwrap_or(NO_PARENT);
     }
 }
 
@@ -370,8 +461,8 @@ impl Default for TransformData {
     fn default() -> Self {
         Self {
             transform: Matrix::identity(),
-            inverse_transform: None,
-            parent: None,
+            inverse: Matrix::identity(),
+            parent: NO_PARENT,
         }
     }
 }
@@ -379,13 +470,16 @@ impl Default for TransformData {
 impl HasTransform for TransformData {
     fn set_transform(&mut self, transform: crate::matrices::Matrix<4, 4>) -> () {
         self.transform = transform;
-        self.inverse_transform = inverse(&transform);
+        self.inverse = crate::matrices::inverse(&transform).unwrap_or(Matrix::identity());
     }
     fn get_transform(&self) -> Matrix<4, 4> {
         self.transform
     }
+    // Always `Some`: the inverse is materialized (identity for an identity
+    // transform). The old `None` meant "no transform", and identity is its
+    // no-op equivalent, so callers that match on `None` still behave identically.
     fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        self.inverse_transform
+        Some(self.inverse)
     }
 }
 

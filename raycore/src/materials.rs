@@ -5,6 +5,7 @@ use crate::{
     tuples::*,
 };
 
+#[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
     pub color: Color,

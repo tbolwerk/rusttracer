@@ -206,7 +206,7 @@ impl World {
         let obj = &self.objects[id];
         let children: Vec<usize> = match obj.kind {
             ShapeKind::Group => self.children[id].clone(),
-            ShapeKind::Csg => [obj.left, obj.right].into_iter().flatten().collect(),
+            ShapeKind::Csg => obj.left().into_iter().chain(obj.right()).collect(),
             _ => return obj.local_bounds(),
         };
         let mut bb = BoundingBox::empty();
@@ -242,7 +242,7 @@ impl World {
         let obj = &self.objects[id];
         let children: Vec<usize> = match obj.kind {
             ShapeKind::Group => self.children[id].clone(),
-            ShapeKind::Csg => [obj.left, obj.right].into_iter().flatten().collect(),
+            ShapeKind::Csg => obj.left().into_iter().chain(obj.right()).collect(),
             _ => return obj.local_bounds(),
         };
         let mut bb = BoundingBox::empty();
@@ -253,7 +253,7 @@ impl World {
         }
         let obj = &mut self.objects[id];
         match obj.kind {
-            ShapeKind::Group | ShapeKind::Csg => obj.bounds = Some(bb),
+            ShapeKind::Group | ShapeKind::Csg => obj.set_bounds(bb),
             _ => {}
         }
         bb
@@ -328,7 +328,7 @@ impl World {
                 }
             }
             ShapeKind::Csg => {
-                let (left, right) = (self.objects[id].left, self.objects[id].right);
+                let (left, right) = (self.objects[id].left(), self.objects[id].right());
                 if let Some(left) = left {
                     self.divide(left, threshold);
                 }
@@ -416,8 +416,8 @@ impl World {
         self.objects[left].set_parent(Some(csg_id));
         self.objects[right].set_parent(Some(csg_id));
         if self.objects[csg_id].kind == ShapeKind::Csg {
-            self.objects[csg_id].left = Some(left);
-            self.objects[csg_id].right = Some(right);
+            self.objects[csg_id].set_left(left);
+            self.objects[csg_id].set_right(right);
         }
         self.rebake();
     }
@@ -491,7 +491,7 @@ impl<'a> Scene<'a> {
                                 Some(inverse) => f.ray.transform(inverse),
                             };
                             if self.use_bounds {
-                                if let Some(bounds) = &object.bounds {
+                                if let Some(bounds) = object.bounds() {
                                     if !bounds.intersects(&local_ray) {
                                         continue;
                                     }
@@ -511,7 +511,7 @@ impl<'a> Scene<'a> {
                                 Some(inverse) => f.ray.transform(inverse),
                             };
                             if self.use_bounds {
-                                if let Some(bounds) = &object.bounds {
+                                if let Some(bounds) = object.bounds() {
                                     if !bounds.intersects(&local_ray) {
                                         continue;
                                     }
@@ -527,7 +527,7 @@ impl<'a> Scene<'a> {
                             sp += 1;
                             stack[sp] = Frame {
                                 tag: F_NODE,
-                                id: object.left.unwrap(),
+                                id: object.left().unwrap(),
                                 ray: local_ray,
                                 next: 0,
                             };
@@ -570,7 +570,7 @@ impl<'a> Scene<'a> {
                     sp += 1;
                     stack[sp] = Frame {
                         tag: F_NODE,
-                        id: object.right.unwrap(),
+                        id: object.right().unwrap(),
                         ray: f.ray,
                         next: 0,
                     };
@@ -585,7 +585,7 @@ impl<'a> Scene<'a> {
     fn filter_region(&self, csg_id: usize, out: &mut Intersections, start: usize) {
         let csg = &self.objects[csg_id];
         let (operation, left) = match csg.kind {
-            ShapeKind::Csg => (csg.operation, csg.left.unwrap()),
+            ShapeKind::Csg => (csg.operation, csg.left().unwrap()),
             _ => return,
         };
         let end = out.len;
@@ -635,7 +635,7 @@ impl<'a> Scene<'a> {
     pub fn filter_intersections(&self, csg_id: usize, mut xs: Intersections) -> Intersections {
         let csg = &self.objects[csg_id];
         let (operation, left) = match csg.kind {
-            ShapeKind::Csg => (csg.operation, csg.left.unwrap()),
+            ShapeKind::Csg => (csg.operation, csg.left().unwrap()),
             _ => return xs,
         };
         xs.sort();
