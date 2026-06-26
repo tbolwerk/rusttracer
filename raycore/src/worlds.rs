@@ -752,25 +752,22 @@ impl World {
     // and the share of unoccluded grid samples for an area light, which is what
     // produces soft-edged shadows.
     pub fn intensity_at(&self, point: Point, light: &Light) -> Number {
-        match light {
-            Light::Point(_) => {
-                if self.is_shadowed_at(light.position(), point) {
-                    0.0
-                } else {
-                    1.0
-                }
+        if light.kind == 0 {
+            if self.is_shadowed_at(light.position(), point) {
+                0.0
+            } else {
+                1.0
             }
-            Light::Area(area) => {
-                let mut total = 0.0;
-                for v in 0..area.vsteps {
-                    for u in 0..area.usteps {
-                        if !self.is_shadowed_at(area.point_on_light(u, v), point) {
-                            total += 1.0;
-                        }
+        } else {
+            let mut total = 0.0;
+            for v in 0..light.vsteps {
+                for u in 0..light.usteps {
+                    if !self.is_shadowed_at(light.point_on_light(u, v), point) {
+                        total += 1.0;
                     }
                 }
-                total / area.samples as Number
             }
+            total / light.samples as Number
         }
     }
     pub fn reflected_color(&self, comps: &Computations, remaining: usize) -> Color {
@@ -819,18 +816,15 @@ impl World {
 }
 impl Default for World {
     fn default() -> Self {
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: -10.0,
                 y: 10.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let mut s1 = Primitive::sphere();
         let mut m1: Material = Material::default();
         m1.set_color(Color {
@@ -865,18 +859,15 @@ mod tests {
     }
     #[test]
     fn the_default_world() {
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: -10.0,
                 y: 10.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let mut s1 = Primitive::sphere();
         let mut m1 = Material::default();
         m1.set_color(Color {
@@ -948,18 +939,15 @@ mod tests {
     #[test]
     fn shading_an_intersection_from_the_inside() {
         let mut w = World::default();
-        w.lights = vec![Light::Point(PointLight {
-            position: Point {
+        w.lights = vec![Light::point_light(Point {
                 x: 0.0,
                 y: 0.25,
                 z: 0.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        })];
+            })];
 
         let r = Ray {
             origin: Point {
@@ -1389,18 +1377,15 @@ mod tests {
     #[test]
     fn shade_hit_is_given_an_intersection_in_shadow() {
         let mut w = World::default();
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 0.0,
                 z: 10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         w.lights = vec![light];
         let s1 = Primitive::sphere();
         const TRANSFORM: Matrix<4, 4> = translation(0.0, 0.0, 10.0);

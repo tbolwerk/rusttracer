@@ -172,7 +172,7 @@ fn chapter15() {
 // are polished gold, so the holes read clearly.
 fn build_csg_world() -> World {
     let mut world = World::new();
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -8.0,
             y: 10.0,
@@ -183,7 +183,7 @@ fn build_csg_world() -> World {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
 
     // Ambient sky sphere for soft fill and reflections.
     let mut sky = Primitive::sphere();
@@ -684,7 +684,7 @@ fn bench() {
 // the book's "Putting It Together" suggests rendering a model.
 fn load_teapot(smooth: bool) -> World {
     let mut world = World::new();
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -8.0,
             y: 12.0,
@@ -695,7 +695,7 @@ fn load_teapot(smooth: bool) -> World {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
 
     // A large ambient-only sphere acts as a soft blue sky for fill and reflections.
     let mut sky = Primitive::sphere();
@@ -809,7 +809,7 @@ fn teapot() {
 
 fn build_marbles_world() -> World {
     let mut world = World::new();
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -9.0,
             y: 11.0,
@@ -820,7 +820,7 @@ fn build_marbles_world() -> World {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
 
     // A large sphere lit purely by ambient acts as a soft sky, giving the glass
     // and metal marbles something colorful to refract and reflect. It is a
@@ -937,7 +937,7 @@ fn build_marbles_world() -> World {
 // tilted and lifted so the whole ring faces the camera.
 fn build_hexagon_world() -> World {
     let mut world = World::new();
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -10.0,
             y: 10.0,
@@ -948,7 +948,7 @@ fn build_hexagon_world() -> World {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
 
     // A reflective floor so the hexagon casts and catches a little light.
     let mut floor = Primitive::plane();
@@ -1058,7 +1058,7 @@ fn build_capitol_world() -> World {
     // from the front-left, and a dim cool "sky" fill from the right that lifts
     // the shadowed faces without erasing the shadows.
     world.lights = vec![
-        Light::Point(PointLight::new(
+        Light::point_light(
             Point {
                 x: -7.0,
                 y: 14.0,
@@ -1069,8 +1069,8 @@ fn build_capitol_world() -> World {
                 g: 0.98,
                 b: 0.92,
             },
-        )),
-        Light::Point(PointLight::new(
+        ),
+        Light::point_light(
             Point {
                 x: 14.0,
                 y: 7.0,
@@ -1081,7 +1081,7 @@ fn build_capitol_world() -> World {
                 g: 0.36,
                 b: 0.45,
             },
-        )),
+        ),
     ];
 
     // Marble: the warm white stone used for most of the building. Soft sheen
@@ -1282,7 +1282,7 @@ fn chapter13() {
 }
 fn chapter12() {
     let mut world = World::new();
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -10.0,
             y: 10.0,
@@ -1293,7 +1293,7 @@ fn chapter12() {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
     let mut floor = Primitive::plane();
     let mut floor_material = Material::default();
     let pattern = Pattern::ring_pattern(
@@ -1438,7 +1438,7 @@ fn build_glass_world() -> World {
     left.set_material(left_material);
     world.objects = vec![floor, middle, right, left];
 
-    world.lights = vec![Light::Point(PointLight::new(
+    world.lights = vec![Light::point_light(
         Point {
             x: -10.0,
             y: 10.0,
@@ -1449,7 +1449,7 @@ fn build_glass_world() -> World {
             g: 1.0,
             b: 1.0,
         },
-    ))];
+    )];
     world
 }
 fn chapter11() {
@@ -1604,7 +1604,7 @@ fn chapter10() {
         g: 1.0,
         b: 1.0,
     };
-    let light = Light::Point(PointLight::new(light_position, light_color));
+    let light = Light::point_light(light_position, light_color);
     world.lights = vec![light];
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
@@ -1696,7 +1696,7 @@ fn chapter9() {
         g: 1.0,
         b: 1.0,
     };
-    let light = Light::Point(PointLight::new(light_position, light_color));
+    let light = Light::point_light(light_position, light_color);
     world.lights = vec![light];
 
     let mut camera: Camera<1000, 1000> = Camera::new(PI / 3.0);
@@ -1847,7 +1847,7 @@ fn chapter6() {
         g: 1.0,
         b: 1.0,
     };
-    let light = Light::Point(PointLight::new(light_position, light_color));
+    let light = Light::point_light(light_position, light_color);
 
     let ray_origin = Point {
         x: 0.0,

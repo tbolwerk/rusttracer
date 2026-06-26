@@ -206,18 +206,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 0.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
@@ -244,18 +241,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 0.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
@@ -282,18 +276,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 10.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
@@ -320,18 +311,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 10.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let result = lightning(&object, light, position, eyev, normalv, 1.0);
         // Looser tolerance: the f32 specular term (powf(shininess)) drifts past EPSILON.
         let expected = 1.6364;
@@ -355,18 +343,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 0.0,
                 z: 10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let result = lightning(&object, light, position, eyev, normalv, 1.0);
         assert_eq!(
             result,
@@ -393,18 +378,15 @@ mod tests {
             y: 0.0,
             z: -1.0,
         };
-        let light = Light::Point(PointLight {
-            position: Point {
+        let light = Light::point_light(Point {
                 x: 0.0,
                 y: 0.0,
                 z: -10.0,
-            },
-            intensity: Color {
+            }, Color {
                 r: 1.0,
                 g: 1.0,
                 b: 1.0,
-            },
-        });
+            });
         let in_shadow = 0.0;
         let result = lightning(&object, light, position, eyev, normalv, in_shadow);
         assert_eq!(

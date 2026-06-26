@@ -1,69 +1,48 @@
 use crate::tuples::*;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct PointLight {
+// A single flat, tagged light struct so the same layout works on the CPU and on
+// rust-gpu/SPIR-V (no data-carrying enums). `kind` selects the behavior:
+//   0 = point light: a single emitter at `position`.
+//   1 = area light: a `usteps` x `vsteps` grid of cells spanning the rectangle
+//       `corner + full_uvec + full_vvec`. Shadow rays are cast to a point in each
+//       cell and averaged, so an occluder casts a soft penumbra rather than a hard
+//       edge. `uvec`/`vvec` are the per-cell step vectors and `position` is the
+//       rectangle's center (used where a single point is needed).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Light {
+    pub kind: u32, // 0 = point, 1 = area
     pub position: Point,
     pub intensity: Color,
-}
-
-// A rectangular area light (the "Area Light and Soft Shadows" bonus chapter).
-// Instead of one point, the emitter is a grid of `usteps` x `vsteps` cells
-// spanning the rectangle `corner + uvec_full + vvec_full`. Shadow rays are cast
-// to a point in each cell and averaged, so an occluder casts a soft penumbra
-// rather than a hard edge. `uvec`/`vvec` are the per-cell step vectors.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AreaLight {
-    pub corner: Point,
-    pub uvec: Vector,
+    pub corner: Point, // area only
+    pub uvec: Vector,  // area only, per-cell step (full_uvec / usteps)
+    pub vvec: Vector,  // area only, per-cell step (full_vvec / vsteps)
     pub usteps: usize,
-    pub vvec: Vector,
     pub vsteps: usize,
     pub samples: usize,
-    pub position: Point, // the rectangle's center, used where a single point is needed
-    pub intensity: Color,
-}
-
-impl AreaLight {
-    pub fn new(
-        corner: Point,
-        full_uvec: Vector,
-        usteps: usize,
-        full_vvec: Vector,
-        vsteps: usize,
-        intensity: Color,
-    ) -> Self {
-        Self {
-            corner,
-            uvec: full_uvec * (1.0 / usteps as Number),
-            usteps,
-            vvec: full_vvec * (1.0 / vsteps as Number),
-            vsteps,
-            samples: usteps * vsteps,
-            position: corner + full_uvec * 0.5 + full_vvec * 0.5,
-            intensity,
-        }
-    }
-    // The center of cell (u, v). Sampling cell centers (the +0.5 offset) gives a
-    // fixed, deterministic pattern; the book optionally jitters within each cell
-    // for smoother penumbras, which is omitted here so renders stay reproducible
-    // across the parallel renderer.
-    pub fn point_on_light(&self, u: usize, v: usize) -> Point {
-        self.corner + self.uvec * (u as Number + 0.5) + self.vvec * (v as Number + 0.5)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Light {
-    Point(PointLight),
-    Area(AreaLight),
 }
 
 impl Light {
     pub const fn point_light(position: Point, intensity: Color) -> Light {
-        Light::Point(PointLight {
+        let zero = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        Light {
+            kind: 0,
             position,
             intensity,
-        })
+            corner: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            uvec: zero,
+            vvec: zero,
+            usteps: 1,
+            vsteps: 1,
+            samples: 1,
+        }
     }
     pub fn area_light(
         corner: Point,
@@ -73,76 +52,50 @@ impl Light {
         vsteps: usize,
         intensity: Color,
     ) -> Light {
-        Light::Area(AreaLight::new(
-            corner, full_uvec, usteps, full_vvec, vsteps, intensity,
-        ))
+        Light {
+            kind: 1,
+            position: corner + full_uvec * 0.5 + full_vvec * 0.5,
+            intensity,
+            corner,
+            uvec: full_uvec * (1.0 / usteps as Number),
+            vvec: full_vvec * (1.0 / vsteps as Number),
+            usteps,
+            vsteps,
+            samples: usteps * vsteps,
+        }
     }
     // A point light is a 1x1 grid whose only sample is its position; an area
     // light reports its real grid. `lighting` and `intensity_at` iterate these
     // uniformly, so both light kinds flow through the same code.
     pub fn usteps(&self) -> usize {
-        match self {
-            Light::Point(_) => 1,
-            Light::Area(a) => a.usteps,
-        }
+        self.usteps
     }
     pub fn vsteps(&self) -> usize {
-        match self {
-            Light::Point(_) => 1,
-            Light::Area(a) => a.vsteps,
-        }
+        self.vsteps
     }
     pub fn samples(&self) -> usize {
-        match self {
-            Light::Point(_) => 1,
-            Light::Area(a) => a.samples,
-        }
+        self.samples
     }
-    pub fn point_on_light(&self, u: usize, v: usize) -> Point {
-        match self {
-            Light::Point(p) => p.position,
-            Light::Area(a) => a.point_on_light(u, v),
-        }
-    }
-}
-
-impl PointLight {
-    pub const fn new(position: Point, intensity: Color) -> Self {
-        Self {
-            position,
-            intensity,
-        }
-    }
-}
-
-pub trait LightProperties {
-    fn position(&self) -> Point;
-    fn intensity(&self) -> Color;
-}
-
-impl LightProperties for PointLight {
-    fn position(&self) -> Point {
+    pub fn position(&self) -> Point {
         self.position
     }
-    fn intensity(&self) -> Color {
+    pub fn intensity(&self) -> Color {
         self.intensity
+    }
+    // The center of cell (u, v). For a point light this is just its position.
+    // Sampling cell centers (the +0.5 offset) gives a fixed, deterministic
+    // pattern; the book optionally jitters within each cell for smoother
+    // penumbras, which is omitted here so renders stay reproducible across the
+    // parallel renderer.
+    pub fn point_on_light(&self, u: usize, v: usize) -> Point {
+        if self.kind == 0 {
+            self.position
+        } else {
+            self.corner + self.uvec * (u as Number + 0.5) + self.vvec * (v as Number + 0.5)
+        }
     }
 }
 
-impl LightProperties for Light {
-    fn position(&self) -> Point {
-        match self {
-            Light::Point(light) => light.position,
-            Light::Area(light) => light.position,
-        }
-    }
-    fn intensity(&self) -> Color {
-        match self {
-            Light::Point(light) => light.intensity,
-            Light::Area(light) => light.intensity,
-        }
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,10 +112,7 @@ mod tests {
             y: 0.0,
             z: 0.0,
         };
-        let light = Light::Point(PointLight {
-            position: position,
-            intensity: intensity,
-        });
+        let light = Light::point_light(position, intensity);
         assert_eq!(light.position(), position);
         assert_eq!(light.intensity(), intensity);
     }
@@ -192,7 +142,7 @@ mod tests {
             y: 0.0,
             z: 1.0,
         };
-        let light = AreaLight::new(corner, v1, 4, v2, 2, white());
+        let light = Light::area_light(corner, v1, 4, v2, 2, white());
         assert_eq!(light.corner, corner);
         assert_eq!(light.uvec, Vector { x: 0.5, y: 0.0, z: 0.0 });
         assert_eq!(light.usteps, 4);
@@ -204,7 +154,7 @@ mod tests {
 
     #[test]
     fn finding_a_single_point_on_an_area_light() {
-        let light = AreaLight::new(
+        let light = Light::area_light(
             Point {
                 x: 0.0,
                 y: 0.0,
