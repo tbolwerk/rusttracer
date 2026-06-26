@@ -18,6 +18,11 @@ crate-type = ["dylib", "lib"]
 # Pin spirv-std to the exact version your rust-gpu / cargo-gpu toolchain expects;
 # 0.9 is a placeholder. See gpu/README.md.
 spirv-std = "0.9"
+# spirv-std -> glam -> libm. Cargo would resolve the newest libm (0.2.16), whose
+# internals (math::generic::rint::rint_round, ...) rust-gpu 0.9.0 can't lower
+# ("missing libm intrinsic"). Force an older libm contemporary with rust-gpu 0.9.
+# If the intrinsic error persists, step this down (0.2.6, 0.2.5, ... 0.2.1).
+libm = "=0.2.7"
 # `gpu` feature -> raycore's math comes from spirv-std (no libm, which can't
 # compile under the rust-gpu backend). default-features=false drops std + cpu-math.
 raycore = { path = "../../raycore", default-features = false, features = ["gpu"] }
