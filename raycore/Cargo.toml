@@ -18,9 +18,17 @@ path = "src/lib.rs"
 default = ["std"]
 std = []
 
-[dependencies]
-# f32 transcendental/rounding math for the no_std build (sqrt, powi, sin, atan2,
-# floor, ...). On std builds the inherent f32 methods shadow these, so behavior
-# is identical; in no_std the `Float` trait routes them through libm.
+# f32 transcendental/rounding math (sqrt, powi, sin, atan2, floor, ...) for the
+# no_std core. The source of the `Float` trait depends on the target:
+#  - Non-SPIR-V (CPU host + the `--no-default-features` host check): num-traits
+#    backed by libm. On std builds the inherent f32 methods shadow it.
+#  - SPIR-V (rust-gpu): libm CANNOT compile under the rust-gpu codegen backend,
+#    so the math comes from spirv-std's GPU intrinsics instead (see tuples.rs).
+[target.'cfg(not(target_arch = "spirv"))'.dependencies]
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 libm = "0.2"
+
+[target.'cfg(target_arch = "spirv")'.dependencies]
+# Provides `num_traits::Float` for f32 via SPIR-V intrinsics. Pin to the version
+# matching your rust-gpu (0.9.0 here).
+spirv-std = "0.9"

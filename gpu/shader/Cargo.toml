@@ -1,3 +1,7 @@
+# Detach from the host workspace at the repo root: this crate builds on its own
+# rust-gpu toolchain to a SPIR-V target, independently of the CPU host.
+[workspace]
+
 [package]
 name = "raycore-shader"
 version = "0.1.0"

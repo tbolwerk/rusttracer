@@ -10,6 +10,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
+// `cfg(target_arch = "spirv")` is unknown to non-spirv toolchains' check-cfg, so
+// they'd warn on it; rust-gpu sets it when compiling the shader.
+#![allow(unexpected_cfgs)]
 
 pub mod tuples;
 pub mod matrices;

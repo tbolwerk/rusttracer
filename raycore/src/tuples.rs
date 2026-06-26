@@ -4,9 +4,15 @@ use core::ops::Mul;
 use core::ops::Neg;
 use core::ops::Sub;
 // Re-exported so every module that does `use crate::tuples::*` gets the f32
-// transcendental/rounding methods in scope. In no_std these come from this trait
-// (libm-backed); in std the inherent f32 methods shadow it. Either way call sites
-// like `x.sqrt()` / `x.powi(2)` / `x.floor()` resolve unchanged.
+// transcendental/rounding methods in scope. Call sites like `x.sqrt()` /
+// `x.powi(2)` / `x.floor()` resolve unchanged on every target:
+//  - SPIR-V (rust-gpu): the `Float` trait from spirv-std, backed by GPU
+//    intrinsics (libm does not compile under the rust-gpu codegen backend).
+//  - everything else: num-traits' `Float` (libm-backed); on std builds the
+//    inherent f32 methods shadow it, so behavior is identical.
+#[cfg(target_arch = "spirv")]
+pub use spirv_std::num_traits::Float;
+#[cfg(not(target_arch = "spirv"))]
 pub use num_traits::Float;
 pub type Number = f32;
 
