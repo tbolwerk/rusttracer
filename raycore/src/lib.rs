@@ -31,3 +31,4 @@ pub mod triangles;
 pub mod groups;
 pub mod csg;
 pub mod worlds;
+pub mod render;
