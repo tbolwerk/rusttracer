@@ -10,4 +10,17 @@ edition = "2021"
 [lib]
 path = "src/lib.rs"
 
+[features]
+# `std` (default) builds the CPU host renderer: the Vec-based `World`, scene
+# building (groups/CSG/BVH/OBJ), and inherent f32 math. Disable it for the GPU:
+# `--no-default-features` compiles only the no_std, heap-free core (Scene + the
+# trace path + math + flat data types), which is what rust-gpu turns into SPIR-V.
+default = ["std"]
+std = []
+
 [dependencies]
+# f32 transcendental/rounding math for the no_std build (sqrt, powi, sin, atan2,
+# floor, ...). On std builds the inherent f32 methods shadow these, so behavior
+# is identical; in no_std the `Float` trait routes them through libm.
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
+libm = "0.2"

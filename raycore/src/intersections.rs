@@ -1,4 +1,4 @@
-use std::ops::Index;
+use core::ops::Index;
 
 use crate::rays::*;
 use crate::shapes::*;
@@ -144,23 +144,23 @@ impl PartialEq for Intersection {
 }
 impl Eq for Intersection {}
 impl Ord for Intersection {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         if self.t < other.t {
-            return std::cmp::Ordering::Less;
+            return core::cmp::Ordering::Less;
         } else if self.t > other.t {
-            return std::cmp::Ordering::Greater;
+            return core::cmp::Ordering::Greater;
         }
-        std::cmp::Ordering::Equal
+        core::cmp::Ordering::Equal
     }
 }
 impl PartialOrd for Intersection {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         if self.t < other.t {
-            return Some(std::cmp::Ordering::Less);
+            return Some(core::cmp::Ordering::Less);
         } else if self.t > other.t {
-            return Some(std::cmp::Ordering::Greater);
+            return Some(core::cmp::Ordering::Greater);
         }
-        Some(std::cmp::Ordering::Equal)
+        Some(core::cmp::Ordering::Equal)
     }
 }
 

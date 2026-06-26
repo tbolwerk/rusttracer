@@ -1,14 +1,32 @@
-use std::ops::Add;
-use std::ops::Div;
-use std::ops::Mul;
-use std::ops::Neg;
-use std::ops::Sub;
+use core::ops::Add;
+use core::ops::Div;
+use core::ops::Mul;
+use core::ops::Neg;
+use core::ops::Sub;
+// Re-exported so every module that does `use crate::tuples::*` gets the f32
+// transcendental/rounding methods in scope. In no_std these come from this trait
+// (libm-backed); in std the inherent f32 methods shadow it. Either way call sites
+// like `x.sqrt()` / `x.powi(2)` / `x.floor()` resolve unchanged.
+pub use num_traits::Float;
 pub type Number = f32;
 
 pub const EPSILON: Number = 1e-5;
 
 pub fn sqrt(x: Number) -> Number {
     x.sqrt()
+}
+
+// f32::rem_euclid lives in std, not core. This extension restores it for no_std
+// (Euclidean remainder for a positive modulus, which is all the renderer uses:
+// uv wrapping with modulus 1.0 and checker parity with 2.0). Under std the
+// inherent f32::rem_euclid shadows it, so behavior is identical.
+pub trait FloatExt {
+    fn rem_euclid(self, m: Number) -> Number;
+}
+impl FloatExt for Number {
+    fn rem_euclid(self, m: Number) -> Number {
+        self - m * (self / m).floor()
+    }
 }
 
 // Extension trait adding a tolerant `floor` to `Number`. A plane's hit point
@@ -30,6 +48,7 @@ pub const fn almost_eq(a: Number, b: Number) -> bool {
     (a - b).abs() <= EPSILON
 }
 
+#[cfg(test)]
 macro_rules! assert_almost_eq {
     ($a: expr, $b: expr) => {
         assert_almost_eq!($a, $b, $crate::tuples::EPSILON);

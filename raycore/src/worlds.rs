@@ -1,3 +1,5 @@
+// Used only by the std-only World (scene building / bounds).
+#[cfg(feature = "std")]
 use crate::bounds::BoundingBox;
 use crate::csg::intersection_allowed;
 use crate::intersections::Computations;
@@ -6,6 +8,7 @@ use crate::intersections::Intersection;
 use crate::intersections::Intersections;
 use crate::lights::*;
 use crate::materials::lightning;
+#[cfg(feature = "std")]
 use crate::materials::Material;
 use crate::matrices::transpose;
 use crate::matrices::Matrix;
@@ -13,6 +16,7 @@ use crate::matrices::Matrix;
 use crate::patterns::*;
 use crate::rays::Ray;
 use crate::shapes::*;
+#[cfg(feature = "std")]
 use crate::transformations::*;
 use crate::tuples::*;
 
@@ -89,6 +93,10 @@ impl Default for ShadeJob {
     }
 }
 
+// The CPU host's scene container is std-only: it owns Vec arenas and runs scene
+// building (groups/CSG/BVH). The GPU never builds scenes; it renders from
+// uploaded buffers via `Scene`, which is no_std.
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     pub objects: Vec<Primitive>,
@@ -122,6 +130,7 @@ pub struct Scene<'a> {
     pub use_bounds: bool,
 }
 
+#[cfg(feature = "std")]
 impl World {
     pub fn new() -> Self {
         Self {
@@ -888,6 +897,7 @@ impl<'a> Scene<'a> {
         self.color_at(&refract_ray, remaining - 1) * object.get_material().transparency
     }
 }
+#[cfg(feature = "std")]
 impl Default for World {
     fn default() -> Self {
         let light = Light::point_light(Point {

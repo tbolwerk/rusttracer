@@ -170,6 +170,7 @@ fn the_default_meterial() {
     assert_eq!(m.shininess, 200.0);
 }
 
+#[cfg(test)]
 fn background() -> (Material, Point) {
     let m = Material::default();
     let position = Point {

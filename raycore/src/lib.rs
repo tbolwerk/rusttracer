@@ -3,8 +3,11 @@
 //! intersections and shading). It is the single source of truth used by both the
 //! CPU host binary and (Stage 3) the rust-gpu SPIR-V shader.
 //!
-//! Stage 1 is a pure code move: the modules below were lifted out of the binary
-//! unchanged. Making this crate `no_std`/heap-free/recursion-free is Stage 2.
+//! The crate is `no_std` unless the `std` feature is on (default). With `std`
+//! off, only the heap-free core compiles (Scene + trace path + math + the flat
+//! data types); the Vec-based `World` and scene building are `std`-only. This is
+//! what lets rust-gpu compile the renderer to SPIR-V.
+#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
