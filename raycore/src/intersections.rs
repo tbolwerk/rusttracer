@@ -194,22 +194,24 @@ impl Intersections {
     pub fn count(&self) -> usize {
         self.len
     }
-    pub fn hit(&self) -> Option<&Intersection> {
-        let mut result = None;
-        for idx in 0..self.len {
-            let intersection = &self.xs[idx];
-            if intersection.t > 0.0 {
-                match result {
-                    None => result = Some(intersection),
-                    Some(intermediate_result) => {
-                        if intermediate_result.t > intersection.t {
-                            result = Some(intersection);
-                        }
-                    }
-                }
+    // Returns the hit BY VALUE (Intersection is Copy), not by reference:
+    // rust-gpu can't lower `Option<&T>` (the None case becomes a null-pointer
+    // cast). Tracks the best index, then copies it out.
+    pub fn hit(&self) -> Option<Intersection> {
+        let mut best = self.len; // sentinel: none found yet
+        let mut idx = 0;
+        while idx < self.len {
+            let t = self.xs[idx].t;
+            if t > 0.0 && (best == self.len || t < self.xs[best].t) {
+                best = idx;
             }
+            idx += 1;
         }
-        result
+        if best == self.len {
+            None
+        } else {
+            Some(self.xs[best])
+        }
     }
     // Append without sorting. Sorting on every append made a scene-wide intersect
     // do O(objects) sorts of a growing list. Callers that need t-order sort once
@@ -305,7 +307,7 @@ mod tests {
         let i2 = Intersection::new(2.0, 1);
         let xs = Intersections::new(vec![i2, i1]);
         let i = xs.hit();
-        assert_eq!(i.unwrap(), &i1);
+        assert_eq!(i.unwrap(), i1);
     }
     #[test]
     fn the_hit_when_some_intersections_have_negative_t() {
@@ -313,7 +315,7 @@ mod tests {
         let i2 = Intersection::new(1.0, 1);
         let xs = Intersections::new(vec![i2, i1]);
         let i = xs.hit();
-        assert_eq!(i.unwrap(), &i2);
+        assert_eq!(i.unwrap(), i2);
     }
     #[test]
     fn the_hit_when_all_intersections_have_negative_t() {
@@ -331,7 +333,7 @@ mod tests {
         let i4 = Intersection::new(2.0, 3);
         let xs = Intersections::new(vec![i1, i2, i3, i4]);
         let i = xs.hit();
-        assert_eq!(i.unwrap(), &i4);
+        assert_eq!(i.unwrap(), i4);
     }
     #[test]
     fn precomputing_the_state_of_an_intersection() {

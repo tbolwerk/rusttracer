@@ -254,10 +254,11 @@ impl Primitive {
     pub fn set_right(&mut self, id: usize) {
         self.right = id as u32;
     }
-    // Cached group/CSG bounds, as Option over the `has_bounds` sentinel.
-    pub fn bounds(&self) -> Option<&BoundingBox> {
+    // Cached group/CSG bounds, as Option over the `has_bounds` sentinel. Returned
+    // BY VALUE (BoundingBox is Copy) because rust-gpu can't lower `Option<&T>`.
+    pub fn bounds(&self) -> Option<BoundingBox> {
         if self.has_bounds != 0 {
-            Some(&self.bounds)
+            Some(self.bounds)
         } else {
             None
         }

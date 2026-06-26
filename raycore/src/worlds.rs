@@ -454,12 +454,17 @@ impl World {
 impl<'a> Scene<'a> {
     pub fn intersect_world(&self, ray: &Ray) -> Intersections {
         let mut intersections = Intersections::empty();
-        // Only roots are traversed here; children are reached recursively by
-        // intersect_object, so a child must not be intersected a second time.
-        for (id, object) in self.objects.iter().enumerate() {
-            if object.parent().is_none() {
-                intersections.extend(&self.intersect_object(id, ray));
+        // Only roots are traversed here; children are reached by intersect_object,
+        // so a child must not be intersected a second time. Index loop (not
+        // .iter().enumerate()) so rust-gpu can lower it: SPIR-V has no slice
+        // iterators / pointer arithmetic.
+        let mut id = 0;
+        while id < self.objects.len() {
+            if self.objects[id].parent().is_none() {
+                let sub = self.intersect_object(id, ray);
+                intersections.extend(&sub);
             }
+            id += 1;
         }
         // Sort once, here, now that every root has contributed. `color_at` and the
         // tests rely on `intersect_world` returning hits in t-order.
@@ -709,17 +714,21 @@ impl<'a> Scene<'a> {
             g: 0.0,
             b: 0.0,
         };
-        for light in self.lights {
-            let intensity = self.intensity_at(comps.over_point, light);
+        // Index loop over lights (no slice iterator) for rust-gpu. Light is Copy.
+        let mut li = 0;
+        while li < self.lights.len() {
+            let light = self.lights[li];
+            let intensity = self.intensity_at(comps.over_point, &light);
             surface = surface
                 + lightning(
-                    &object,
-                    light.clone(),
+                    object,
+                    light,
                     comps.point,
                     comps.eyev,
                     comps.normalv,
                     intensity,
                 );
+            li += 1;
         }
         surface
     }
@@ -759,7 +768,7 @@ impl<'a> Scene<'a> {
             let job = stack[sp];
             let xs = self.intersect_world(&job.ray);
             let hit = match xs.hit() {
-                Some(h) => *h,
+                Some(h) => h,
                 None => continue,
             };
             let comps = hit.prepare_computations(&job.ray, self, &xs);
