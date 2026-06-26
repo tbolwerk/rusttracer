@@ -140,6 +140,8 @@ pub fn cylindrical_map(p: Point) -> (Number, Number) {
 }
 
 // The six faces of a cube, picked by which coordinate of a point is largest.
+// repr(u32) so the discriminant isn't u8 (which rust-gpu needs Int8 for).
+#[repr(u32)]
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum CubeFace {
     Left,

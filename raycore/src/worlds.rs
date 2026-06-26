@@ -11,6 +11,9 @@ use crate::materials::lightning;
 #[cfg(feature = "std")]
 use crate::materials::Material;
 use crate::matrices::transpose;
+// Matrix the type is only named by std-side code (World tests/helpers); the
+// no_std trace path uses inverse matrices by value without naming the type.
+#[cfg(feature = "std")]
 use crate::matrices::Matrix;
 #[cfg(test)]
 use crate::patterns::*;
