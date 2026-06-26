@@ -48,14 +48,16 @@ const ZERO_RAY: Ray = Ray {
 // interpreted; the spare fields carry whatever that state needs (a ray in node/
 // group/csg-right frames, a child cursor for groups, a buffer start index for
 // csg frames).
-const F_NODE: u8 = 0; // enter object `id` with `ray`; dispatch on kind
-const F_GROUP: u8 = 1; // resume group `id` (local `ray`) at child `next`
-const F_CSG_RIGHT: u8 = 2; // left done; enter csg `id`'s right child, then filter
-const F_CSG_FILTER: u8 = 3; // filter the buffer region [`next`..end) for csg `id`
+// u32, not u8: rust-gpu needs OpCapability Int8 for u8, which the default target
+// doesn't enable.
+const F_NODE: u32 = 0; // enter object `id` with `ray`; dispatch on kind
+const F_GROUP: u32 = 1; // resume group `id` (local `ray`) at child `next`
+const F_CSG_RIGHT: u32 = 2; // left done; enter csg `id`'s right child, then filter
+const F_CSG_FILTER: u32 = 3; // filter the buffer region [`next`..end) for csg `id`
 
 #[derive(Clone, Copy)]
 struct Frame {
-    tag: u8,
+    tag: u32,
     id: usize,
     ray: Ray,
     next: usize,
@@ -491,15 +493,12 @@ impl<'a> Scene<'a> {
                     let object = &self.objects[f.id];
                     match object.kind {
                         ShapeKind::Group => {
-                            let local_ray = match object.get_inverse_transform() {
-                                None => f.ray,
-                                Some(inverse) => f.ray.transform(inverse),
-                            };
-                            if self.use_bounds {
-                                if let Some(bounds) = object.bounds() {
-                                    if !bounds.intersects(&local_ray) {
-                                        continue;
-                                    }
+                            let local_ray = f.ray.transform(object.get_inverse_transform());
+                            // Read the bounds fields directly (not Option<BoundingBox>,
+                            // which rust-gpu can't lower).
+                            if self.use_bounds && object.has_bounds != 0 {
+                                if !object.bounds.intersects(&local_ray) {
+                                    continue;
                                 }
                             }
                             stack[sp] = Frame {
@@ -511,15 +510,12 @@ impl<'a> Scene<'a> {
                             sp += 1;
                         }
                         ShapeKind::Csg => {
-                            let local_ray = match object.get_inverse_transform() {
-                                None => f.ray,
-                                Some(inverse) => f.ray.transform(inverse),
-                            };
-                            if self.use_bounds {
-                                if let Some(bounds) = object.bounds() {
-                                    if !bounds.intersects(&local_ray) {
-                                        continue;
-                                    }
+                            let local_ray = f.ray.transform(object.get_inverse_transform());
+                            // Read the bounds fields directly (not Option<BoundingBox>,
+                            // which rust-gpu can't lower).
+                            if self.use_bounds && object.has_bounds != 0 {
+                                if !object.bounds.intersects(&local_ray) {
+                                    continue;
                                 }
                             }
                             let start = out.len;
@@ -677,9 +673,7 @@ impl<'a> Scene<'a> {
         let mut k = n;
         while k > 0 {
             k -= 1;
-            let inverse = self.objects[chain[k]]
-                .get_inverse_transform()
-                .unwrap_or(Matrix::identity());
+            let inverse = self.objects[chain[k]].get_inverse_transform();
             p = inverse * p;
         }
         p
@@ -688,9 +682,7 @@ impl<'a> Scene<'a> {
         let mut normal = normal;
         let mut cur = id;
         loop {
-            let inverse = self.objects[cur]
-                .get_inverse_transform()
-                .unwrap_or(Matrix::identity());
+            let inverse = self.objects[cur].get_inverse_transform();
             normal = (transpose(&inverse) * normal).normalize();
             match self.objects[cur].parent() {
                 Some(parent) => cur = parent,

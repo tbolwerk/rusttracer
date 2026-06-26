@@ -384,10 +384,7 @@ impl Primitive {
     // iterative world traversal). Applies the leaf's own inverse transform, then
     // dispatches on `kind`. Groups/CSG are handled by `World::intersect_object`.
     pub fn intersect_into(&self, ray: &Ray, object_id: usize, xs: &mut Intersections) {
-        let local_ray = match self.get_inverse_transform() {
-            None => ray.clone(),
-            Some(inverse_transform) => ray.transform(inverse_transform),
-        };
+        let local_ray = ray.transform(self.get_inverse_transform());
         match self.kind {
             ShapeKind::Sphere => sphere_intersect(&local_ray, object_id, xs),
             ShapeKind::Plane => plane_intersect(&local_ray, object_id, xs),
@@ -402,10 +399,7 @@ impl Primitive {
         }
     }
     pub fn normal_at(&self, point: &Point) -> Vector {
-        let inverse_transform = match self.get_inverse_transform() {
-            None => Matrix::identity(),
-            Some(inverse_transform) => inverse_transform,
-        };
+        let inverse_transform = self.get_inverse_transform();
         let local_point = inverse_transform * point.clone();
         let local_normal = self.local_normal_at(&local_point);
         let world_normal = transpose(&inverse_transform) * local_normal;
@@ -416,7 +410,10 @@ impl Primitive {
 pub trait HasTransform {
     fn set_transform(&mut self, transform: Matrix<4, 4>) -> ();
     fn get_transform(&self) -> Matrix<4, 4>;
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>>;
+    // The inverse transform, always materialized (identity when unset). Returns a
+    // plain Matrix, not Option<Matrix>, because rust-gpu can't lower an Option
+    // with a struct payload.
+    fn get_inverse_transform(&self) -> Matrix<4, 4>;
 }
 
 // Sentinel for `parent`: this shape is a top-level (root) object, with no
@@ -476,11 +473,8 @@ impl HasTransform for TransformData {
     fn get_transform(&self) -> Matrix<4, 4> {
         self.transform
     }
-    // Always `Some`: the inverse is materialized (identity for an identity
-    // transform). The old `None` meant "no transform", and identity is its
-    // no-op equivalent, so callers that match on `None` still behave identically.
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        Some(self.inverse)
+    fn get_inverse_transform(&self) -> Matrix<4, 4> {
+        self.inverse
     }
 }
 
@@ -505,7 +499,7 @@ impl HasTransform for Primitive {
     fn get_transform(&self) -> Matrix<4, 4> {
         self.transform.get_transform()
     }
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
+    fn get_inverse_transform(&self) -> Matrix<4, 4> {
         self.transform.get_inverse_transform()
     }
 }

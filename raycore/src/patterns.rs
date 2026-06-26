@@ -44,8 +44,8 @@ impl HasTransform for Pattern {
     fn get_transform(&self) -> Matrix<4, 4> {
         self.transform
     }
-    fn get_inverse_transform(&self) -> Option<Matrix<4, 4>> {
-        Some(self.inverse)
+    fn get_inverse_transform(&self) -> Matrix<4, 4> {
+        self.inverse
     }
 }
 
@@ -122,10 +122,7 @@ impl Pattern {
         }
     }
     pub fn pattern_at_shape(&self, object: &Primitive, world_point: Point) -> Color {
-        let object_point = match object.get_inverse_transform() {
-            None => world_point,
-            Some(inverse_transform) => inverse_transform * world_point,
-        };
+        let object_point = object.get_inverse_transform() * world_point;
         let pattern_point = self.inverse * object_point;
         self.pattern_at(pattern_point)
     }
