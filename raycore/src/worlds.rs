@@ -767,10 +767,11 @@ impl<'a> Scene<'a> {
             sp -= 1;
             let job = stack[sp];
             let xs = self.intersect_world(&job.ray);
-            let hit = match xs.hit() {
-                Some(h) => h,
-                None => continue,
-            };
+            let hi = xs.hit_index();
+            if hi == xs.len {
+                continue;
+            }
+            let hit = xs.xs[hi];
             let comps = hit.prepare_computations(&job.ray, self, &xs);
             total = total + self.surface_at(&comps) * job.weight;
 
@@ -838,9 +839,13 @@ impl<'a> Scene<'a> {
             direction,
         };
 
-        match self.intersect_world(&r).hit() {
-            None => false,
-            Some(intersection) => intersection.t > EPSILON && intersection.t < distance,
+        let xs = self.intersect_world(&r);
+        let hi = xs.hit_index();
+        if hi == xs.len {
+            false
+        } else {
+            let t = xs.xs[hi].t;
+            t > EPSILON && t < distance
         }
     }
     pub fn intensity_at(&self, point: Point, light: &Light) -> Number {

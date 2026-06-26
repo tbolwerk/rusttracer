@@ -194,10 +194,11 @@ impl Intersections {
     pub fn count(&self) -> usize {
         self.len
     }
-    // Returns the hit BY VALUE (Intersection is Copy), not by reference:
-    // rust-gpu can't lower `Option<&T>` (the None case becomes a null-pointer
-    // cast). Tracks the best index, then copies it out.
-    pub fn hit(&self) -> Option<Intersection> {
+    // Index of the nearest positive-t hit, or `self.len` if there is none.
+    // rust-gpu 0.9 can't lower `Option<Intersection>` (an Option with a struct
+    // payload), so the GPU trace path uses this sentinel-index form; the caller
+    // reads `xs.xs[idx]` when `idx != xs.len`.
+    pub fn hit_index(&self) -> usize {
         let mut best = self.len; // sentinel: none found yet
         let mut idx = 0;
         while idx < self.len {
@@ -207,10 +208,17 @@ impl Intersections {
             }
             idx += 1;
         }
-        if best == self.len {
+        best
+    }
+    // Option-returning convenience over `hit_index`. Used by host tests only; the
+    // GPU path calls `hit_index` directly (so this Option<struct> is never lowered
+    // to SPIR-V).
+    pub fn hit(&self) -> Option<Intersection> {
+        let i = self.hit_index();
+        if i == self.len {
             None
         } else {
-            Some(self.xs[best])
+            Some(self.xs[i])
         }
     }
     // Append without sorting. Sorting on every append made a scene-wide intersect
