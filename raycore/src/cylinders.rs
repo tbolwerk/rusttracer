@@ -6,7 +6,7 @@ use crate::tuples::*;
 // A cylinder may be truncated to a y-range [minimum, maximum] and optionally
 // capped at each end (`closed`). When closed, the caps add up to two more
 // intersections where the ray crosses each end disc within the unit radius.
-fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Vec<Intersection>) {
+fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
     if !prim.closed || almost_eq(ray.direction.y(), 0.0) {
         return;
     }
@@ -27,15 +27,13 @@ fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Vec<In
     }
 }
 
-pub fn cylinder_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Intersections {
+pub fn cylinder_intersect(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
     let a = ray.direction.x().powi(2) + ray.direction.z().powi(2);
 
-    let mut xs: Vec<Intersection> = vec![];
-
     if almost_eq(a, 0.0) {
-        intersect_caps(prim, ray, object_id, &mut xs);
+        intersect_caps(prim, ray, object_id, xs);
 
-        return Intersections::new(xs);
+        return;
     }
 
     let b = 2.0 * ray.origin.x() * ray.direction.x() + 2.0 * ray.origin.z() * ray.direction.z();
@@ -44,7 +42,7 @@ pub fn cylinder_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Inte
     let disc = b.powi(2) - 4.0 * a * c;
 
     if disc < 0.0 {
-        return Intersections::new(xs);
+        return;
     }
 
     let mut t0 = (-b - sqrt(disc)) / (2.0 * a);
@@ -61,9 +59,7 @@ pub fn cylinder_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Inte
         }
     }
 
-    intersect_caps(prim, ray, object_id, &mut xs);
-
-    Intersections::new(xs)
+    intersect_caps(prim, ray, object_id, xs);
 }
 
 pub fn cylinder_normal_at(prim: &Primitive, point: &Point) -> Vector {
@@ -141,7 +137,8 @@ fn a_ray_misses_a_cylinder() {
             origin: origin,
             direction: dir,
         };
-        let xs = cylinder_intersect(&cyl, &r, 0);
+        let mut xs = Intersections::empty();
+        cylinder_intersect(&cyl, &r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 }
@@ -211,7 +208,8 @@ fn a_ray_strikes_a_cylinder() {
             origin,
             direction: dir,
         };
-        let xs = cylinder_intersect(&cyl, &r, 0);
+        let mut xs = Intersections::empty();
+        cylinder_intersect(&cyl, &r, 0, &mut xs);
         assert_eq!(xs.count(), 2);
         // Looser tolerance: f32 rounding on these t-values exceeds EPSILON.
         assert_almost_eq!(xs[0].t, t0, 1e-3);
@@ -388,7 +386,8 @@ fn intersecting_a_contrained_cylinder() {
             origin: point,
             direction: dir,
         };
-        let xs = cylinder_intersect(&cyl, &r, 0);
+        let mut xs = Intersections::empty();
+        cylinder_intersect(&cyl, &r, 0, &mut xs);
         assert_eq!(xs.count(), count);
     }
 }
@@ -502,7 +501,8 @@ fn intersecting_the_caps_of_a_closed_cylinder() {
             origin: *point,
             direction: dir,
         };
-        let xs = cylinder_intersect(&cyl, &r, 0);
+        let mut xs = Intersections::empty();
+        cylinder_intersect(&cyl, &r, 0, &mut xs);
         println!("Example no. {i}");
         assert_eq!(xs.count(), *count);
     }

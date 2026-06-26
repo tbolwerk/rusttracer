@@ -6,7 +6,7 @@ use crate::tuples::*;
 // A (double-)cone truncated to a y-range and optionally end-capped, mirroring
 // the cylinder. At each y the cone's radius equals |y|, which is why the cap
 // radius test uses `bound.abs()`.
-fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Vec<Intersection>) {
+fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
     if !prim.closed || almost_eq(ray.direction.y(), 0.0) {
         return;
     }
@@ -27,10 +27,8 @@ fn intersect_caps(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Vec<In
     }
 }
 
-pub fn cone_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Intersections {
+pub fn cone_intersect(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
     let a = ray.direction.x().powi(2) - ray.direction.y().powi(2) + ray.direction.z().powi(2);
-
-    let mut xs: Vec<Intersection> = vec![];
 
     let b = 2.0 * ray.origin.x() * ray.direction.x() - 2.0 * ray.origin.y() * ray.direction.y()
         + 2.0 * ray.origin.z() * ray.direction.z();
@@ -70,9 +68,7 @@ pub fn cone_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Intersec
         }
     }
 
-    intersect_caps(prim, ray, object_id, &mut xs);
-
-    Intersections::new(xs)
+    intersect_caps(prim, ray, object_id, xs);
 }
 
 pub fn cone_normal_at(prim: &Primitive, point: &Point) -> Vector {
@@ -168,7 +164,8 @@ fn intersecting_a_cone_with_a_ray() {
             origin,
             direction: dir,
         };
-        let xs = cone_intersect(&shape, &r, 0);
+        let mut xs = Intersections::empty();
+        cone_intersect(&shape, &r, 0, &mut xs);
         assert_eq!(xs.count(), 2);
         // Looser tolerance: f32 rounding on these large t-values exceeds EPSILON.
         assert_almost_eq!(xs[0].t, t0, 1e-3);
@@ -192,7 +189,8 @@ fn intersecting_a_cone_with_a_ray_parallel_to_one_of_its_halves() {
         },
         direction,
     };
-    let xs = cone_intersect(&shape, &r, 0);
+    let mut xs = Intersections::empty();
+    cone_intersect(&shape, &r, 0, &mut xs);
     assert_eq!(xs.count(), 1);
     assert_almost_eq!(xs[0].t, 0.35355);
 }
@@ -312,7 +310,8 @@ fn intersecting_a_cones_end_caps() {
             origin,
             direction: dir,
         };
-        let xs = cone_intersect(&shape, &r, 0);
+        let mut xs = Intersections::empty();
+        cone_intersect(&shape, &r, 0, &mut xs);
         assert_eq!(xs.count(), count);
     }
 }

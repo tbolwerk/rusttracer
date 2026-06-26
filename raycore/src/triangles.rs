@@ -9,33 +9,33 @@ use crate::tuples::*;
 // misses unless it lands inside all three edges (u >= 0, v >= 0, u + v <= 1). A
 // smooth triangle keeps the (u, v) on the surviving hit so its normal can be
 // blended; a flat triangle ignores them.
-pub fn triangle_intersect(prim: &Primitive, ray: &Ray, object_id: usize) -> Intersections {
+pub fn triangle_intersect(prim: &Primitive, ray: &Ray, object_id: usize, xs: &mut Intersections) {
     let dir_cross_e2 = ray.direction.cross(prim.e2);
     let det = prim.e1.dot(dir_cross_e2);
     // A determinant near zero means the ray is parallel to the triangle.
     if det.abs() < EPSILON {
-        return Intersections::new(vec![]);
+        return;
     }
 
     let f = 1.0 / det;
     let p1_to_origin = ray.origin - prim.p1;
     let u = f * p1_to_origin.dot(dir_cross_e2);
     if u < 0.0 || u > 1.0 {
-        return Intersections::new(vec![]);
+        return;
     }
 
     let origin_cross_e1 = p1_to_origin.cross(prim.e1);
     let v = f * ray.direction.dot(origin_cross_e1);
     if v < 0.0 || (u + v) > 1.0 {
-        return Intersections::new(vec![]);
+        return;
     }
 
     let t = f * prim.e2.dot(origin_cross_e1);
     match prim.kind {
         ShapeKind::SmoothTriangle => {
-            Intersections::new(vec![Intersection::with_uv(t, object_id, u, v)])
+            xs.push(Intersection::with_uv(t, object_id, u, v));
         }
-        _ => Intersections::new(vec![Intersection::new(t, object_id)]),
+        _ => xs.push(Intersection::new(t, object_id)),
     }
 }
 
@@ -132,7 +132,8 @@ mod tests {
                 z: 0.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 
@@ -151,7 +152,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 
@@ -170,7 +172,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 
@@ -189,7 +192,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 
@@ -208,7 +212,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_eq!(xs.count(), 1);
         assert_almost_eq!(xs[0].t, 2.0);
     }
@@ -276,7 +281,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = triangle_intersect(&t, &r, 0);
+        let mut xs = Intersections::empty();
+        triangle_intersect(&t, &r, 0, &mut xs);
         assert_almost_eq!(xs[0].u, 0.45);
         assert_almost_eq!(xs[0].v, 0.25);
     }

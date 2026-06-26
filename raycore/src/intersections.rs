@@ -5,7 +5,13 @@ use crate::shapes::*;
 use crate::tuples::*;
 use crate::worlds::World;
 
-#[derive(Debug, Copy, Clone)]
+// Maximum number of intersections tracked per ray. The intersection buffer is a
+// fixed-capacity array of this size so the ray path allocates nothing on the
+// heap (required for rust-gpu / no_std). Any intersections beyond this cap are
+// silently dropped (`push` debug-asserts to surface overflow in debug builds).
+pub const MAX_XS: usize = 256;
+
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Intersection {
     pub t: Number,
     pub object_id: usize,
@@ -58,28 +64,46 @@ impl Intersection {
     ) -> Computations {
         let mut n1 = 1.0;
         let mut n2 = 1.0;
-        let mut containers: Vec<usize> = vec![];
-        for i in xs.intersections.iter() {
+        // Fixed-capacity stand-in for the book's `containers` Vec: the set of
+        // objects the ray is currently inside, tracked over `containers[0..clen]`.
+        let mut containers = [0usize; MAX_XS];
+        let mut clen = 0usize;
+        for idx in 0..xs.len {
+            let i = xs.xs[idx];
             let is_hit = i.t == self.t;
             if is_hit {
-                match containers.last() {
-                    None => (),
-                    Some(object_id) => {
-                        n1 = world.objects[*object_id].get_material().refractive_index;
+                if clen > 0 {
+                    let object_id = containers[clen - 1];
+                    n1 = world.objects[object_id].get_material().refractive_index;
+                }
+            }
+            // Find `i.object_id` in containers[0..clen]; if present remove it
+            // (shift the tail left), otherwise append it.
+            let mut pos = None;
+            for c in 0..clen {
+                if containers[c] == i.object_id {
+                    pos = Some(c);
+                    break;
+                }
+            }
+            match pos {
+                Some(p) => {
+                    for c in p..clen - 1 {
+                        containers[c] = containers[c + 1];
+                    }
+                    clen -= 1;
+                }
+                None => {
+                    if clen < MAX_XS {
+                        containers[clen] = i.object_id;
+                        clen += 1;
                     }
                 }
             }
-            if let Some(pos) = containers.iter().position(|&x| x == i.object_id) {
-                containers.remove(pos);
-            } else {
-                containers.push(i.object_id);
-            }
             if is_hit {
-                match containers.last() {
-                    None => (),
-                    Some(object_id) => {
-                        n2 = world.objects[*object_id].get_material().refractive_index;
-                    }
+                if clen > 0 {
+                    let object_id = containers[clen - 1];
+                    n2 = world.objects[object_id].get_material().refractive_index;
                 }
             }
         }
@@ -140,21 +164,39 @@ impl PartialOrd for Intersection {
     }
 }
 
-#[derive(Debug, PartialEq)]
+// A fixed-capacity buffer of intersections. `xs[0..len]` are the live entries;
+// the rest are unused padding. Heap-free so the ray path can run under no_std /
+// rust-gpu. Clone (a 256-element copy), not Copy, to keep moves cheap by default.
+#[derive(Debug, Clone)]
 pub struct Intersections {
-    pub intersections: Vec<Intersection>,
+    pub xs: [Intersection; MAX_XS],
+    pub len: usize,
 }
 
 impl Intersections {
-    pub fn new(xs: Vec<Intersection>) -> Self {
-        let mut intersections = xs;
-        intersections.sort();
-        Self { intersections }
+    pub fn empty() -> Self {
+        Self {
+            xs: [Intersection::default(); MAX_XS],
+            len: 0,
+        }
     }
-
+    // Append one intersection. Beyond MAX_XS it is silently dropped; the
+    // debug_assert flags the overflow in debug builds.
+    pub fn push(&mut self, i: Intersection) {
+        if self.len < MAX_XS {
+            self.xs[self.len] = i;
+            self.len += 1;
+        } else {
+            debug_assert!(false, "Intersections overflow: MAX_XS ({MAX_XS}) exceeded");
+        }
+    }
+    pub fn count(&self) -> usize {
+        self.len
+    }
     pub fn hit(&self) -> Option<&Intersection> {
         let mut result = None;
-        for intersection in self.intersections.iter() {
+        for idx in 0..self.len {
+            let intersection = &self.xs[idx];
             if intersection.t > 0.0 {
                 match result {
                     None => result = Some(intersection),
@@ -172,20 +214,42 @@ impl Intersections {
     // do O(objects) sorts of a growing list. Callers that need t-order sort once
     // at the point of use: `intersect_world` before returning, and
     // `filter_intersections` for CSG. `hit()` scans linearly and needs no order.
-    pub fn extend(&mut self, mut other: Intersections) -> () {
-        self.intersections.append(&mut other.intersections);
+    pub fn extend(&mut self, other: &Intersections) -> () {
+        for idx in 0..other.len {
+            self.push(other.xs[idx]);
+        }
     }
+    // Stable insertion sort of xs[0..len] ascending by `t`. Hand-written (not
+    // slice::sort) so it works under no_std later.
     pub fn sort(&mut self) {
-        self.intersections.sort();
+        let mut i = 1;
+        while i < self.len {
+            let key = self.xs[i];
+            let mut j = i;
+            while j > 0 && self.xs[j - 1].t > key.t {
+                self.xs[j] = self.xs[j - 1];
+                j -= 1;
+            }
+            self.xs[j] = key;
+            i += 1;
+        }
     }
-    pub fn count(&self) -> usize {
-        self.intersections.len()
+    // Build from a Vec, copying items in and sorting. Test-only: it keeps every
+    // existing `Intersections::new(vec![...])` test working verbatim.
+    #[cfg(test)]
+    pub fn new(v: Vec<Intersection>) -> Self {
+        let mut result = Self::empty();
+        for i in v {
+            result.push(i);
+        }
+        result.sort();
+        result
     }
 }
 impl Index<usize> for Intersections {
     type Output = Intersection;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.intersections[index]
+        &self.xs[index]
     }
 }
 impl Intersection {

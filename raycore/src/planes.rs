@@ -6,14 +6,11 @@ use crate::shapes::*;
 
 // The plane lies in the xz axis (y = 0). A ray hits it once, unless it runs
 // parallel (its y-direction is ~0).
-pub fn plane_intersect(ray: &Ray, object_id: usize) -> Intersections {
+pub fn plane_intersect(ray: &Ray, object_id: usize, xs: &mut Intersections) {
     if ray.direction.y().abs() < EPSILON {
-        return Intersections::new(vec![]);
+        return;
     }
-    Intersections::new(vec![Intersection::new(
-        -ray.origin.y / ray.direction.y,
-        object_id,
-    )])
+    xs.push(Intersection::new(-ray.origin.y / ray.direction.y, object_id));
 }
 
 // A plane's normal points straight up everywhere; the point is irrelevant.
@@ -83,7 +80,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = plane_intersect(&r, 0);
+        let mut xs = Intersections::empty();
+        plane_intersect(&r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
     #[test]
@@ -100,7 +98,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = plane_intersect(&r, 0);
+        let mut xs = Intersections::empty();
+        plane_intersect(&r, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
     #[test]

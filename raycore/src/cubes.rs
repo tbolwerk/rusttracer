@@ -4,7 +4,7 @@ use crate::tuples::*;
 
 // The axis-aligned unit cube spans [-1, 1] on every axis. The slab method tests
 // the ray against each pair of parallel faces and keeps the overlapping range.
-pub fn cube_intersect(ray: &Ray, object_id: usize) -> Intersections {
+pub fn cube_intersect(ray: &Ray, object_id: usize, xs: &mut Intersections) {
     fn check_axis(origin: Number, direction: Number) -> (Number, Number) {
         let tmin_numerator = -1 as Number - origin;
         let tmax_numerator = 1 as Number - origin;
@@ -34,13 +34,11 @@ pub fn cube_intersect(ray: &Ray, object_id: usize) -> Intersections {
     let tmax = xtmax.min(ytmax).min(ztmax);
 
     if tmin > tmax {
-        return Intersections::new(vec![]);
+        return;
     }
 
-    Intersections::new(vec![
-        Intersection::new(tmin, object_id),
-        Intersection::new(tmax, object_id),
-    ])
+    xs.push(Intersection::new(tmin, object_id));
+    xs.push(Intersection::new(tmax, object_id));
 }
 
 // The cube's normal points along whichever axis the point's coordinate is
@@ -197,7 +195,8 @@ fn a_ray_intersects_a_cube() {
     } in examples
     {
         let r = Ray { origin, direction };
-        let xs = cube_intersect(&r, 2);
+        let mut xs = Intersections::empty();
+        cube_intersect(&r, 2, &mut xs);
         println!("Example {name}");
         assert_eq!(xs.count(), 2);
         assert_eq!(xs[0].t, t1);
@@ -287,7 +286,8 @@ fn a_ray_misses_a_cube() {
     ];
     for Example { origin, direction } in examples {
         let ray = Ray { origin, direction };
-        let xs = cube_intersect(&ray, 0);
+        let mut xs = Intersections::empty();
+        cube_intersect(&ray, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
 }

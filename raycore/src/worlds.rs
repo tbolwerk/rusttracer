@@ -34,14 +34,12 @@ impl World {
         }
     }
     pub fn intersect_world(&self, ray: &Ray) -> Intersections {
-        let mut intersections = Intersections {
-            intersections: vec![],
-        };
+        let mut intersections = Intersections::empty();
         // Only roots are traversed here; children are reached recursively by
         // intersect_object, so a child must not be intersected a second time.
         for (id, object) in self.objects.iter().enumerate() {
             if object.parent().is_none() {
-                intersections.extend(self.intersect_object(id, ray));
+                intersections.extend(&self.intersect_object(id, ray));
             }
         }
         // Sort once, here, now that every root has contributed. `color_at` and the
@@ -69,13 +67,13 @@ impl World {
                 if self.use_bounds {
                     if let Some(bounds) = &object.bounds {
                         if !bounds.intersects(&local_ray) {
-                            return Intersections::new(vec![]);
+                            return Intersections::empty();
                         }
                     }
                 }
-                let mut xs = Intersections::new(vec![]);
+                let mut xs = Intersections::empty();
                 for &child in &object.children {
-                    xs.extend(self.intersect_object(child, &local_ray));
+                    xs.extend(&self.intersect_object(child, &local_ray));
                 }
                 xs
             }
@@ -89,7 +87,7 @@ impl World {
                 if self.use_bounds {
                     if let Some(bounds) = &object.bounds {
                         if !bounds.intersects(&local_ray) {
-                            return Intersections::new(vec![]);
+                            return Intersections::empty();
                         }
                     }
                 }
@@ -97,7 +95,7 @@ impl World {
                 // allows. `extend` re-sorts, so the combined list is in t-order,
                 // which `filter_intersections` relies on.
                 let mut xs = self.intersect_object(object.left.unwrap(), &local_ray);
-                xs.extend(self.intersect_object(object.right.unwrap(), &local_ray));
+                xs.extend(&self.intersect_object(object.right.unwrap(), &local_ray));
                 self.filter_intersections(id, xs)
             }
             _ => object.intersect(ray, id),
@@ -138,11 +136,12 @@ impl World {
         xs.sort();
         let mut inside_left = false;
         let mut inside_right = false;
-        let mut result = vec![];
-        for intersection in &xs.intersections {
+        let mut result = Intersections::empty();
+        for idx in 0..xs.len {
+            let intersection = xs.xs[idx];
             let left_hit = self.includes(left, intersection.object_id);
             if intersection_allowed(operation, left_hit, inside_left, inside_right) {
-                result.push(*intersection);
+                result.push(intersection);
             }
             if left_hit {
                 inside_left = !inside_left;
@@ -150,7 +149,7 @@ impl World {
                 inside_right = !inside_right;
             }
         }
-        Intersections::new(result)
+        result
     }
     // Object `id`'s bounding box in its own space, computed from scratch by
     // recursing into children (a leaf's `local_bounds`, a group/CSG's union of

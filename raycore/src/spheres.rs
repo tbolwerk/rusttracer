@@ -12,7 +12,7 @@ use crate::transformations::*;
 
 // The unit sphere is centered at the origin with radius 1; all other spheres are
 // this one under a transform, so the math below bakes both constants in.
-pub fn sphere_intersect(ray: &Ray, object_id: usize) -> Intersections {
+pub fn sphere_intersect(ray: &Ray, object_id: usize, xs: &mut Intersections) {
     let origin = Point {
         x: 0.0,
         y: 0.0,
@@ -27,15 +27,14 @@ pub fn sphere_intersect(ray: &Ray, object_id: usize) -> Intersections {
     let discriminant = b.powi(2) - 4.0 * a * c;
 
     if discriminant < 0.0 {
-        return Intersections::new(vec![]);
+        return;
     }
 
     let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
     let t2 = (-b + discriminant.sqrt()) / (2.0 * a);
 
-    let i1 = Intersection::new(t1, object_id);
-    let i2 = Intersection::new(t2, object_id);
-    Intersections::new(vec![i1, i2])
+    xs.push(Intersection::new(t1, object_id));
+    xs.push(Intersection::new(t2, object_id));
 }
 
 // The unit sphere's normal at a surface point is simply the vector from the
@@ -66,7 +65,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         assert_eq!(xs[0].t, 4.0);
         assert_eq!(xs[1].t, 6.0);
     }
@@ -84,7 +84,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         assert_eq!(xs[0].t, 5.0);
         assert_eq!(xs[1].t, 5.0);
     }
@@ -102,7 +103,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         assert_eq!(xs.count(), 0);
     }
     #[test]
@@ -119,7 +121,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         assert_eq!(xs[0].t, -1.0);
         assert_eq!(xs[1].t, 1.0);
     }
@@ -137,7 +140,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         assert_eq!(xs[0].t, -6.0);
         assert_eq!(xs[1].t, -4.0);
     }
@@ -155,7 +159,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let xs = sphere_intersect(&R, 0);
+        let mut xs = Intersections::empty();
+        sphere_intersect(&R, 0, &mut xs);
         Intersections::new(vec![xs[0], xs[1]]);
         assert_eq!(xs[0].object_id, 0);
     }
