@@ -105,10 +105,15 @@ fn gpu_demo() {
 
     let cam = camera.to_cam(5);
     println!("gpu: dispatching {W}x{H} compute shader...");
-    let pixels = gpu::render_gpu(&world, &cam);
-    write_ppm_u32("gpu.ppm", &pixels, W, H);
-    println!("gpu: wrote gpu.ppm");
+    match gpu::render_gpu(&world, &cam) {
+        Some(pixels) => {
+            write_ppm_u32("gpu.ppm", &pixels, W, H);
+            println!("gpu: wrote gpu.ppm");
+        }
+        None => println!("gpu: no usable GPU adapter; run without --features gpu for CPU"),
+    }
 }
+
 
 // Write packed 0x00RRGGBB pixels as a binary (P6) PPM.
 #[cfg(feature = "gpu")]
@@ -212,26 +217,27 @@ fn chapter15() {
         },
     ));
 
-    // Same world, same camera, bounding-box culling disabled: every ray (and
-    // every reflection, refraction and shadow ray) tests all 280 marbles.
-    let mut naive_world = world.clone();
-    naive_world.use_bounds = false;
-    println!("chapter15: rendering {MARBLES_HSIZE}x{MARBLES_VSIZE} without bounding boxes...");
-    let start = Instant::now();
-    let _ = camera.render_par(naive_world);
-    let naive = start.elapsed();
-    println!("chapter15:   without bounding boxes: {naive:.2?}");
+    // The bounding-box speedup demo (render once with culling off, once on, and
+    // compare) is a CPU-renderer benchmark. It is skipped on GPU builds: the
+    // no-bounds pass is ~15s of pointless CPU work there, and the GPU shader uses
+    // the bounds unconditionally anyway.
+    #[cfg(not(feature = "gpu"))]
+    {
+        // Same world, same camera, bounding-box culling disabled: every ray (and
+        // every reflection, refraction and shadow ray) tests all 280 marbles.
+        let mut naive_world = world.clone();
+        naive_world.use_bounds = false;
+        println!("chapter15: rendering {MARBLES_HSIZE}x{MARBLES_VSIZE} without bounding boxes...");
+        let start = Instant::now();
+        let _ = camera.render_par(naive_world);
+        println!("chapter15:   without bounding boxes: {:.2?}", start.elapsed());
+    }
 
-    // Same scene with culling on. This is the image we keep.
+    // The image we keep (bounding-box culling on).
     println!("chapter15: rendering {MARBLES_HSIZE}x{MARBLES_VSIZE} with bounding boxes...");
     let start = Instant::now();
-    let canvas = camera.render_par(world);
-    let bvh = start.elapsed();
-    println!("chapter15:   with bounding boxes:    {bvh:.2?}");
-    println!(
-        "chapter15: speedup {:.1}x",
-        naive.as_secs_f64() / bvh.as_secs_f64()
-    );
+    let canvas = camera.render_auto(world);
+    println!("chapter15:   with bounding boxes:    {:.2?}", start.elapsed());
     let filename = "chapter15.ppm";
     match canvas.write_ppm(filename, PpmFormat::P6) {
         Err(_) => println!("Something went wrong!"),
@@ -541,7 +547,7 @@ fn chapter17() {
 
     println!("chapter17: rendering {W}x{H} (this samples the lens + area light, so it is slow)...");
     let start = Instant::now();
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     println!("chapter17: rendered in {:.2?}", start.elapsed());
     let filename = "chapter17.ppm";
     match canvas.write_ppm(filename, PpmFormat::P6) {
@@ -573,7 +579,7 @@ fn chapter16() {
         },
     ));
     println!("chapter16: rendering 800x600...");
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter16.ppm";
     match canvas.write_ppm(filename, PpmFormat::P6) {
         Err(_) => println!("Something went wrong!"),
@@ -872,7 +878,7 @@ fn teapot() {
 
         println!("teapot: rendering {W}x{H} ({label})...");
         let start = Instant::now();
-        let canvas = camera.render_par(world);
+        let canvas = camera.render_auto(world);
         println!("teapot:   rendered in {:.2?}", start.elapsed());
 
         match canvas.write_ppm(filename, PpmFormat::P6) {
@@ -1115,7 +1121,7 @@ fn chapter14() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter14.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1347,7 +1353,7 @@ fn chapter13() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter13.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1441,7 +1447,7 @@ fn chapter12() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter12.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1549,7 +1555,7 @@ fn chapter11() {
         },
     ));
 
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter11.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1700,7 +1706,7 @@ fn chapter10() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter10.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1792,7 +1798,7 @@ fn chapter9() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter9.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {
@@ -1887,7 +1893,7 @@ fn chapter7() {
             z: 0.0,
         },
     ));
-    let canvas = camera.render_par(world);
+    let canvas = camera.render_auto(world);
     let filename = "chapter7.ppm";
     let result = canvas.write_ppm(filename, PpmFormat::P6);
     match result {

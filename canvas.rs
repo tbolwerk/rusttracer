@@ -93,6 +93,23 @@ impl<const ROWS: usize, const COLS: usize> Canvas<ROWS, COLS> {
     pub fn set(&mut self, value: Pixel, row: usize, col: usize) -> () {
         self.pixels.set(value, row, col);
     }
+    // Build a canvas from a row-major 0x00RRGGBB framebuffer (the format the GPU
+    // backend returns). `argb` must hold exactly ROWS*COLS pixels, row by row from
+    // the top-left, matching the canvas layout.
+    pub fn from_argb(argb: &[u32]) -> Self {
+        let mut canvas = Self::new(255);
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                let p = argb[row * COLS + col];
+                canvas.set(
+                    Pixel::new((p >> 16) as u8, (p >> 8) as u8, p as u8),
+                    row,
+                    col,
+                );
+            }
+        }
+        canvas
+    }
     pub fn write_pixel(&mut self, color: Color, row: usize, col: usize) -> () {
         let value = Pixel::clamp(0, self.max_color, color);
         self.set(value, row, col)

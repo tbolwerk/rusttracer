@@ -852,8 +852,8 @@ impl<'a> Scene<'a> {
             }
         } else {
             let mut total = 0.0;
-            for v in 0..light.vsteps {
-                for u in 0..light.usteps {
+            for v in 0..light.vsteps as usize {
+                for u in 0..light.usteps as usize {
                     if !self.is_shadowed_at(light.point_on_light(u, v), point) {
                         total += 1.0;
                     }

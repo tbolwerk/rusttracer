@@ -17,9 +17,14 @@ pub struct Light {
     pub corner: Point, // area only
     pub uvec: Vector,  // area only, per-cell step (full_uvec / usteps)
     pub vvec: Vector,  // area only, per-cell step (full_vvec / vsteps)
-    pub usteps: usize,
-    pub vsteps: usize,
-    pub samples: usize,
+    // These are sample-grid counts. They are `u32`, not `usize`, on purpose: the
+    // whole `Light` is uploaded byte-for-byte to the GPU, where rust-gpu lowers
+    // `usize` to 32 bits. A `usize` here would make the host struct 12 bytes larger
+    // than the shader's view, so the GPU would read every light at the wrong stride
+    // and all diffuse/specular lighting would be corrupted.
+    pub usteps: u32,
+    pub vsteps: u32,
+    pub samples: u32,
 }
 
 impl Light {
@@ -60,22 +65,22 @@ impl Light {
             corner,
             uvec: full_uvec * (1.0 / usteps as Number),
             vvec: full_vvec * (1.0 / vsteps as Number),
-            usteps,
-            vsteps,
-            samples: usteps * vsteps,
+            usteps: usteps as u32,
+            vsteps: vsteps as u32,
+            samples: (usteps * vsteps) as u32,
         }
     }
     // A point light is a 1x1 grid whose only sample is its position; an area
     // light reports its real grid. `lighting` and `intensity_at` iterate these
     // uniformly, so both light kinds flow through the same code.
     pub fn usteps(&self) -> usize {
-        self.usteps
+        self.usteps as usize
     }
     pub fn vsteps(&self) -> usize {
-        self.vsteps
+        self.vsteps as usize
     }
     pub fn samples(&self) -> usize {
-        self.samples
+        self.samples as usize
     }
     pub fn position(&self) -> Point {
         self.position

@@ -24,8 +24,8 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 // Window / full-quality render size.
-pub const DISP_W: usize = 1920;
-pub const DISP_H: usize = 1080;
+pub const DISP_W: usize = 800;
+pub const DISP_H: usize = 400;
 
 // Dynamic resolution, expressed as a "block size": one ray is traced per
 // block x block square and the result fills the block. A larger block is coarser
@@ -239,6 +239,11 @@ pub struct Viewport {
     drag: Option<Drag>,
     // Reflection depth of the still (refined) frame, adjustable live with [ and ].
     still_depth: usize,
+    // GPU backend (only with --features gpu). When present, every frame is traced
+    // full-resolution on the GPU instead of using the CPU coarse/refine ladder.
+    // `None` (no adapter) transparently keeps the CPU path.
+    #[cfg(feature = "gpu")]
+    gpu: Option<crate::gpu::WavefrontRenderer>,
 }
 
 impl Viewport {
@@ -279,6 +284,8 @@ impl Viewport {
             display: vec![0; DISP_W * DISP_H],
             drag: None,
             still_depth: STILL_DEPTH,
+            #[cfg(feature = "gpu")]
+            gpu: crate::gpu::WavefrontRenderer::new(),
         }
     }
 
@@ -528,6 +535,30 @@ impl Viewport {
             self.cache.clear();
             self.order.clear();
             self.world.compute_bounds();
+        }
+
+        // GPU path: trace the whole frame on the GPU every loop. It's fast enough
+        // to skip the CPU coarse-while-moving / refine-when-still ladder entirely;
+        // a shallower depth while moving keeps it snappy on heavy scenes. If a
+        // frame loses the device (a scene too heavy for the GPU watchdog), drop the
+        // dead renderer and fall through to the CPU path for the rest of the session.
+        #[cfg(feature = "gpu")]
+        if let Some(renderer) = &self.gpu {
+            let depth = if active { MOVE_DEPTH } else { self.still_depth };
+            let cam = self.cam.to_cam(depth as u32);
+            match renderer.render_caught(&self.world, &cam) {
+                Some(pixels) => {
+                    self.display.copy_from_slice(&pixels);
+                    return self
+                        .window
+                        .update_with_buffer(&self.display, DISP_W, DISP_H)
+                        .is_ok();
+                }
+                None => {
+                    eprintln!("gpu: device lost; switching the viewer to CPU rendering");
+                    self.gpu = None;
+                }
+            }
         }
 
         if active {

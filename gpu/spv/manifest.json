@@ -1,7 +1,27 @@
 [
   {
     "source_path": "../spv/raycore_shader.spv",
-    "entry_point": "main_cs",
-    "wgsl_entry_point": "main_cs"
+    "entry_point": "wf_init_cs",
+    "wgsl_entry_point": "wf_init_cs"
+  },
+  {
+    "source_path": "../spv/raycore_shader.spv",
+    "entry_point": "wf_present_cs",
+    "wgsl_entry_point": "wf_present_cs"
+  },
+  {
+    "source_path": "../spv/raycore_shader.spv",
+    "entry_point": "wf_shade_cs",
+    "wgsl_entry_point": "wf_shade_cs"
+  },
+  {
+    "source_path": "../spv/raycore_shader.spv",
+    "entry_point": "wf_shadow_cs",
+    "wgsl_entry_point": "wf_shadow_cs"
+  },
+  {
+    "source_path": "../spv/raycore_shader.spv",
+    "entry_point": "wf_trace_cs",
+    "wgsl_entry_point": "wf_trace_cs"
   }
 ]

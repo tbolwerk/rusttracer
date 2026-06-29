@@ -144,6 +144,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             hsize: HSIZE as u32,
             vsize: VSIZE as u32,
             max_depth,
+            row_offset: 0,
         }
     }
     pub fn render(&self, world: World) -> Canvas<VSIZE, HSIZE> {
@@ -167,6 +168,30 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
                 }
             });
         image
+    }
+    // Render a still, choosing the backend by build feature: the GPU compute
+    // shader with `--features gpu`, otherwise the parallel CPU renderer. This is
+    // the entry the chapters use, so one binary renders the whole book on whichever
+    // backend it was built for. The GPU is a pinhole path tracer, so focal blur
+    // (a positive aperture or multiple samples) and a missing GPU adapter both
+    // transparently fall back to the CPU renderer.
+    pub fn render_auto(&self, world: World) -> Canvas<VSIZE, HSIZE> {
+        #[cfg(feature = "gpu")]
+        {
+            if self.aperture == 0.0 && self.samples <= 1 {
+                let mut world = world;
+                // The GPU trace reads the flat child_indices and cached bounds, so
+                // make sure they reflect the final scene before uploading.
+                world.compute_bounds();
+                let cam = self.to_cam(MAX_REFLECTION_DEPTH as u32);
+                if let Some(pixels) = crate::gpu::render_gpu(&world, &cam) {
+                    return Canvas::from_argb(&pixels);
+                }
+                // render_gpu already reported why (no adapter / device lost).
+                return self.render_par(world);
+            }
+        }
+        self.render_par(world)
     }
     // Like `render_par`, but borrows the world (so it can be re-rendered every
     // frame without cloning) and takes an explicit recursion depth, so the live
