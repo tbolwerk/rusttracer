@@ -24,8 +24,8 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 // Window / full-quality render size.
-pub const DISP_W: usize = 800;
-pub const DISP_H: usize = 400;
+pub const DISP_W: usize = 1920;
+pub const DISP_H: usize = 1080;
 
 // Dynamic resolution, expressed as a "block size": one ray is traced per
 // block x block square and the result fills the block. A larger block is coarser
@@ -33,6 +33,10 @@ pub const DISP_H: usize = 400;
 // the slowest-scene fallback while moving); blocks are always powers of two so the
 // refinement's sample grids nest, letting each pixel be traced exactly once.
 const MAX_BLOCK: usize = 32;
+// GPU still refinement: full-res tile edge (pixels). The still frame is rendered as
+// these tiles in center-out order, a budgeted batch per frame.
+#[cfg(feature = "gpu")]
+const GPU_TILE: usize = 128;
 pub const MOVE_DEPTH: usize = 1; // reflection depth while moving
 const FRAME_BUDGET_MS: f64 = 33.0; // ~30 fps target, while moving and per refine chunk
 pub const STILL_DEPTH: usize = 4; // full-frame reflection depth once stopped
@@ -170,6 +174,33 @@ fn center_out_reps(block: usize, prev: Option<usize>, w: usize, h: usize) -> Vec
     out
 }
 
+// The full-res tiles covering a w x h frame, ordered center-out (nearest tile
+// center to the screen center first), so GPU still refinement sharpens from the
+// middle outward like the CPU's center-out ring refinement.
+#[cfg(feature = "gpu")]
+fn center_out_tiles(w: usize, h: usize, tile: usize) -> Vec<(u32, u32, u32, u32)> {
+    let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+    let mut tiles = Vec::new();
+    let mut y = 0;
+    while y < h {
+        let th = tile.min(h - y);
+        let mut x = 0;
+        while x < w {
+            let tw = tile.min(w - x);
+            tiles.push((x as u32, y as u32, tw as u32, th as u32));
+            x += tile;
+        }
+        y += tile;
+    }
+    let dist2 = |&(x, y, tw, th): &(u32, u32, u32, u32)| {
+        let dx = (x as f64 + tw as f64 / 2.0) - cx;
+        let dy = (y as f64 + th as f64 / 2.0) - cy;
+        dx * dx + dy * dy
+    };
+    tiles.sort_by(|a, b| dist2(a).partial_cmp(&dist2(b)).unwrap());
+    tiles
+}
+
 // Where a ray crosses the horizontal plane y = `plane_y`, going forward. Used to
 // drag a picked object across a horizontal plane at the height it was grabbed.
 fn ray_ground_hit(ray: &Ray, plane_y: Number) -> Option<Point> {
@@ -239,11 +270,22 @@ pub struct Viewport {
     drag: Option<Drag>,
     // Reflection depth of the still (refined) frame, adjustable live with [ and ].
     still_depth: usize,
-    // GPU backend (only with --features gpu). When present, every frame is traced
-    // full-resolution on the GPU instead of using the CPU coarse/refine ladder.
-    // `None` (no adapter) transparently keeps the CPU path.
+    // GPU backend (only with --features gpu). When present, frames are traced on
+    // the GPU: coarse while moving, then a resolution ladder that sharpens to full
+    // res once still. `None` (no adapter) transparently keeps the CPU path.
     #[cfg(feature = "gpu")]
     gpu: Option<crate::gpu::WavefrontRenderer>,
+    // GPU still-refinement state: the pose being sharpened, its center-out list of
+    // full-res tiles still to render, a cursor into it, and how many tiles to do per
+    // frame (auto-tuned to the frame budget).
+    #[cfg(feature = "gpu")]
+    gpu_refine_key: Option<FrameKey>,
+    #[cfg(feature = "gpu")]
+    gpu_tiles: Vec<(u32, u32, u32, u32)>,
+    #[cfg(feature = "gpu")]
+    gpu_tile_cursor: usize,
+    #[cfg(feature = "gpu")]
+    gpu_tiles_per_frame: usize,
 }
 
 impl Viewport {
@@ -286,6 +328,14 @@ impl Viewport {
             still_depth: STILL_DEPTH,
             #[cfg(feature = "gpu")]
             gpu: crate::gpu::WavefrontRenderer::new(),
+            #[cfg(feature = "gpu")]
+            gpu_refine_key: None,
+            #[cfg(feature = "gpu")]
+            gpu_tiles: Vec::new(),
+            #[cfg(feature = "gpu")]
+            gpu_tile_cursor: 0,
+            #[cfg(feature = "gpu")]
+            gpu_tiles_per_frame: 8,
         }
     }
 
@@ -537,26 +587,27 @@ impl Viewport {
             self.world.compute_bounds();
         }
 
-        // GPU path. Like the CPU viewport, trade resolution for responsiveness:
-        // while the camera moves, trace a coarse 1/`move_block`-res frame at shallow
-        // depth and bilinear-upscale it (the GPU traces every pixel, so a full-res
-        // heavy scene per frame is too slow to move through); once still, trace the
-        // full-resolution frame at full depth. `move_block` auto-tunes to the frame
-        // budget, exactly as `render_moving` does for the CPU. On device loss, drop
-        // the renderer and fall through to the CPU path for the rest of the session.
+        // GPU path. Like the CPU viewport, trade resolution for responsiveness, with
+        // a progressive ladder (the GPU traces every pixel, so a full heavy frame per
+        // loop is too slow to move through):
+        //   * moving -> one coarse 1/`move_block`-res frame at shallow depth, upscaled;
+        //     `move_block` auto-tunes to the frame budget like `render_moving`.
+        //   * cached -> a previously finished full-res frame for this pose: instant.
+        //   * still  -> sharpen over successive frames (1/scale halving to full res),
+        //     each frame responsive, then cache the full-res result for revisits.
+        // On device loss, drop the renderer and fall through to the CPU path.
         #[cfg(feature = "gpu")]
         if self.gpu.is_some() {
             if active {
+                self.gpu_refine_key = None; // stopping will restart the ladder
                 let scale = self.move_block.max(1) as u32;
                 let cam = self.cam.to_cam_scaled(MOVE_DEPTH as u32, scale);
                 let (sw, sh) = (cam.hsize as usize, cam.vsize as usize);
                 let start = Instant::now();
-                let frame = self.gpu.as_ref().unwrap().render_caught(&self.world, &cam);
-                match frame {
+                match self.gpu.as_ref().unwrap().render_caught(&self.world, &cam) {
                     Some(small) => {
                         upscale_bilinear(&small, sw, sh, &mut self.display, DISP_W, DISP_H);
                         self.shown_key = None;
-                        // Hysteresis on the (power-of-two) block size, as render_moving.
                         let ms = start.elapsed().as_secs_f64() * 1000.0;
                         if ms > FRAME_BUDGET_MS * 1.2 {
                             self.move_block = (self.move_block * 2).min(MAX_BLOCK);
@@ -570,14 +621,49 @@ impl Viewport {
                         self.gpu = None;
                     }
                 }
+            } else if let Some(buf) = self.cache.get(&key) {
+                self.display.copy_from_slice(buf);
+                self.shown_key = Some(key);
+                self.gpu_refine_key = None;
+                return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
             } else if self.shown_key != Some(key) {
-                // Held still: trace the full-resolution frame once.
+                // Still: sharpen to full res by rendering center-out full-res tiles
+                // over the coarse frame, a budgeted batch per UI frame, until the whole
+                // frame is done — then cache it for instant revisit.
+                if self.gpu_refine_key != Some(key) {
+                    self.gpu_refine_key = Some(key);
+                    self.gpu_tiles = center_out_tiles(DISP_W, DISP_H, GPU_TILE);
+                    self.gpu_tile_cursor = 0;
+                }
+                let start = self.gpu_tile_cursor;
+                let end = (start + self.gpu_tiles_per_frame.max(1)).min(self.gpu_tiles.len());
+                let batch: Vec<(u32, u32, u32, u32)> = self.gpu_tiles[start..end].to_vec();
                 let cam = self.cam.to_cam(self.still_depth as u32);
-                let frame = self.gpu.as_ref().unwrap().render_caught(&self.world, &cam);
-                match frame {
-                    Some(pixels) => {
-                        self.display.copy_from_slice(&pixels);
-                        self.shown_key = Some(key);
+                // Seed the framebuffer with the coarse frame on the first batch only.
+                let seed = if start == 0 { Some(self.display.clone()) } else { None };
+                let t0 = Instant::now();
+                let rendered = self.gpu.as_ref().unwrap().render_tiles_caught(
+                    &self.world,
+                    &cam,
+                    &batch,
+                    seed.as_deref(),
+                );
+                match rendered {
+                    Some(full) => {
+                        self.display.copy_from_slice(&full);
+                        self.gpu_tile_cursor = end;
+                        // Auto-tune batch size toward the frame budget.
+                        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                        if ms > FRAME_BUDGET_MS * 1.2 {
+                            self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame / 2).max(1);
+                        } else if ms < FRAME_BUDGET_MS * 0.5 {
+                            self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame * 2).min(self.gpu_tiles.len().max(1));
+                        }
+                        if self.gpu_tile_cursor >= self.gpu_tiles.len() {
+                            self.cache_frame(key); // full res done: cache for revisit
+                            self.shown_key = Some(key);
+                            self.gpu_refine_key = None;
+                        }
                         return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
                     }
                     None => {
@@ -586,7 +672,7 @@ impl Viewport {
                     }
                 }
             } else {
-                // Still and already shown: reuse the display.
+                // Fully sharpened and shown: reuse the display.
                 return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
             }
         }

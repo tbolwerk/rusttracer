@@ -145,6 +145,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             vsize: VSIZE as u32,
             max_depth,
             row_offset: 0,
+            col_offset: 0,
         }
     }
     // Like `to_cam`, but for a `1/scale`-resolution render of the SAME view (fewer,
@@ -163,6 +164,7 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             vsize: (VSIZE as u32).div_ceil(scale),
             max_depth,
             row_offset: 0,
+            col_offset: 0,
         }
     }
     pub fn render(&self, world: World) -> Canvas<VSIZE, HSIZE> {

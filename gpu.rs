@@ -86,7 +86,9 @@ impl StateCache {
         let nodes = store((cap * size_of::<WfNode>()) as u64, wgpu::BufferUsages::empty());
         let intensity = store((cap * WF_MAX_LIGHTS * 4) as u64, wgpu::BufferUsages::empty());
         let accum = store((cap * size_of::<Color>()) as u64, wgpu::BufferUsages::empty());
-        let out = store((cap * 4) as u64, wgpu::BufferUsages::COPY_SRC);
+        // COPY_DST so the host can seed it with the coarse frame before center-out
+        // tiles overwrite their regions with full-res pixels.
+        let out = store((cap * 4) as u64, wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST);
         let any = store(4, wgpu::BufferUsages::empty());
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: None, size: (cap * 4) as u64, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
@@ -160,6 +162,35 @@ fn select_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
     };
     candidates.sort_by_key(|a| rank(a.get_info().device_type));
     candidates.into_iter().next()
+}
+
+// Bounce-round count for a frame: the branching reflect/refract tree drains in at
+// most this many pop rounds (a binary tree of depth `max_depth`), bounded so the
+// rounds run in one submission with no per-round CPU sync.
+fn rounds(cam: &Cam) -> u32 {
+    (1u32 << (cam.max_depth + 1)).min(WF_MAX_ROUNDS).max(2)
+}
+
+// Upload `cam` into the cached cam buffer with the given tile offsets applied.
+fn write_buffer_cam(queue: &wgpu::Queue, sc: &StateCache, cam: &Cam, row_offset: u32, col_offset: u32) {
+    let mut c = *cam;
+    c.row_offset = row_offset;
+    c.col_offset = col_offset;
+    queue.write_buffer(&sc.cam, 0, as_bytes(&[c]));
+}
+
+// Copy the framebuffer back to the CPU (one map + device wait).
+fn read_back(device: &wgpu::Device, sc: &StateCache, out_bytes: u64) -> Vec<u32> {
+    let slice = sc.readback.slice(0..out_bytes);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    let out: Vec<u32> = slice
+        .get_mapped_range()
+        .chunks_exact(4)
+        .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    sc.readback.unmap();
+    out
 }
 
 // A live wavefront GPU context: device, queue, and the five compute pipelines
@@ -277,46 +308,92 @@ impl WavefrontRenderer {
         queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
         queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
         queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
-        queue.write_buffer(&sc.cam, 0, as_bytes(&[*cam]));
+        write_buffer_cam(queue, sc, cam, cam.row_offset, cam.col_offset);
 
-        let gx = w.div_ceil(8);
-        let gy = h.div_ceil(8);
-
-        // The branching reflect/refract tree drains in at most this many pop rounds
-        // (a binary tree of depth `max_depth`). Bounded so we run them in a SINGLE
-        // submission with no per-round CPU sync — the per-round readback stall was the
-        // other half of why fly was slow. Most pixels finish far sooner and their
-        // empty rounds cost almost nothing (each thread reads `sp` and returns).
-        let rounds = (1u32 << (cam.max_depth + 1)).min(WF_MAX_ROUNDS).max(2);
-
-        // Seed primary rays, run all bounce rounds, pack — ALL in ONE compute pass
-        // (wgpu inserts the storage barriers between dispatches), one submission, one
-        // sync. A pass per dispatch added a large fixed per-frame cost.
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
-            let mut go = |pipeline: &wgpu::ComputePipeline, group: &wgpu::BindGroup| {
-                pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, group, &[]);
-                pass.dispatch_workgroups(gx, gy, 1);
-            };
-            go(&self.p_init, &sc.bg_init);
-            for _ in 0..rounds {
-                go(&self.p_trace, &sc.bg_trace);
-                go(&self.p_shadow, &sc.bg_shadow);
-                go(&self.p_shade, &sc.bg_shade);
-            }
-            go(&self.p_present, &sc.bg_present);
-        }
+        self.encode_frame(sc, &mut enc, w.div_ceil(8), h.div_ceil(8), rounds(cam));
         enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
         queue.submit(Some(enc.finish()));
+        read_back(device, sc, out_bytes)
+    }
 
-        let slice = sc.readback.slice(0..out_bytes);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        let out: Vec<u32> = slice.get_mapped_range().chunks_exact(4).map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect();
-        sc.readback.unmap();
-        out
+    // Record one full wavefront frame into `enc`: seed primary rays, run the bounce
+    // rounds, pack — ALL in ONE compute pass (wgpu inserts the storage barriers
+    // between dispatches; a pass per dispatch added a large fixed per-frame cost).
+    // `gx`/`gy` are the workgroup counts for the dispatched region.
+    fn encode_frame(&self, sc: &StateCache, enc: &mut wgpu::CommandEncoder, gx: u32, gy: u32, rounds: u32) {
+        let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+        let mut go = |pipeline: &wgpu::ComputePipeline, group: &wgpu::BindGroup| {
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.dispatch_workgroups(gx, gy, 1);
+        };
+        go(&self.p_init, &sc.bg_init);
+        for _ in 0..rounds {
+            go(&self.p_trace, &sc.bg_trace);
+            go(&self.p_shadow, &sc.bg_shadow);
+            go(&self.p_shade, &sc.bg_shade);
+        }
+        go(&self.p_present, &sc.bg_present);
+    }
+
+    /// Render `cam`'s full-resolution frame as the given center-out `tiles`
+    /// (x0, y0, tw, th), accumulating full-res pixels into the persistent framebuffer
+    /// over the coarse `seed` (the upscaled moving frame, supplied on the first batch)
+    /// so untouched areas stay coarse. Returns the whole framebuffer. This lets a
+    /// heavy still frame refine from the center outward across several UI frames, like
+    /// the CPU viewport's interlaced refinement. `cam` is the full-frame camera; each
+    /// tile only changes its row/col offset and dispatch size.
+    pub fn render_tiles(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>) -> Vec<u32> {
+        let device = &self.device;
+        let queue = &self.queue;
+        let pixels = (cam.hsize as usize) * (cam.vsize as usize);
+        let out_bytes = (pixels * 4) as u64;
+
+        let mut child_u32: Vec<u32> = world.child_indices.iter().map(|&i| i as u32).collect();
+        if child_u32.is_empty() {
+            child_u32.push(0);
+        }
+        let obj_bytes = std::mem::size_of_val(&world.objects[..]);
+        let light_bytes = std::mem::size_of_val(&world.lights[..]);
+        let child_bytes = std::mem::size_of_val(&child_u32[..]);
+        if !self.cache.borrow().as_ref().map_or(false, |sc| sc.matches(pixels, obj_bytes, light_bytes, child_bytes)) {
+            *self.cache.borrow_mut() = Some(StateCache::new(self, pixels, obj_bytes, light_bytes, child_bytes));
+        }
+        let cache = self.cache.borrow();
+        let sc = cache.as_ref().unwrap();
+
+        queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
+        queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
+        queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
+        if let Some(coarse) = seed {
+            queue.write_buffer(&sc.out, 0, as_bytes(coarse));
+        }
+
+        let r = rounds(cam);
+        // One submit per tile (each with its own offsets via a fresh cam upload, which
+        // the queue orders before that tile's dispatch); no per-tile readback, so the
+        // single sync happens only at the final readback below.
+        for &(x0, y0, tw, th) in tiles {
+            write_buffer_cam(queue, sc, cam, y0, x0);
+            let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            self.encode_frame(sc, &mut enc, tw.div_ceil(8), th.div_ceil(8), r);
+            queue.submit(Some(enc.finish()));
+        }
+
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
+        queue.submit(Some(enc.finish()));
+        read_back(device, sc, out_bytes)
+    }
+
+    /// `render_tiles` wrapped to catch a device-loss panic (-> None), as `render_caught`.
+    pub fn render_tiles_caught(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>) -> Option<Vec<u32>> {
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render_tiles(world, cam, tiles, seed)));
+        std::panic::set_hook(prev_hook);
+        r.ok()
     }
 
     /// Like `render`, but catches a "device lost" panic and returns `None`, so a

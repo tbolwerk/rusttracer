@@ -70,7 +70,7 @@ pub fn wf_init_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] sp: &mut [u32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] accum: &mut [Color],
 ) {
-    let x = id.x;
+    let x = id.x + cam.col_offset;
     let y = id.y + cam.row_offset;
     if x >= cam.hsize || y >= cam.vsize {
         return;
@@ -99,7 +99,7 @@ pub fn wf_trace_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] nodes: &mut [WfNode],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] any_active: &mut [u32],
 ) {
-    let x = id.x;
+    let x = id.x + cam.col_offset;
     let y = id.y + cam.row_offset;
     if x >= cam.hsize || y >= cam.vsize {
         return;
@@ -137,7 +137,7 @@ pub fn wf_shadow_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] nodes: &[WfNode],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] intensity: &mut [f32],
 ) {
-    let x = id.x;
+    let x = id.x + cam.col_offset;
     let y = id.y + cam.row_offset;
     if x >= cam.hsize || y >= cam.vsize {
         return;
@@ -170,7 +170,7 @@ pub fn wf_shade_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] sp: &mut [u32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] accum: &mut [Color],
 ) {
-    let x = id.x;
+    let x = id.x + cam.col_offset;
     let y = id.y + cam.row_offset;
     if x >= cam.hsize || y >= cam.vsize {
         return;
@@ -245,7 +245,7 @@ pub fn wf_present_cs(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] accum: &[Color],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] out: &mut [u32],
 ) {
-    let x = id.x;
+    let x = id.x + cam.col_offset;
     let y = id.y + cam.row_offset;
     if x >= cam.hsize || y >= cam.vsize {
         return;

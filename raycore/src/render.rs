@@ -25,11 +25,12 @@ pub struct Cam {
     // Reflection/refraction bounce budget (the host's MAX_REFLECTION_DEPTH). Kept
     // on the camera so the GPU honors the same depth the CPU uses.
     pub max_depth: u32,
-    // Row offset added to the compute shader's `global_invocation_id.y`. The host
-    // dispatches a heavy frame in horizontal tiles (one dispatch per band of rows)
-    // so no single dispatch runs long enough to trip the GPU's timeout watchdog;
-    // each tile sets this to its first row. Always 0 on the CPU.
+    // Offsets added to the compute shader's `global_invocation_id` so a dispatch can
+    // render an arbitrary sub-rectangle of the frame: the host renders the still
+    // frame as center-out tiles, each setting these to the tile's top-left corner
+    // (and dispatching only the tile's size). Both 0 for a full-frame render / CPU.
     pub row_offset: u32,
+    pub col_offset: u32,
 }
 
 impl Cam {
@@ -198,6 +199,7 @@ mod tests {
             vsize,
             max_depth: 5,
             row_offset: 0,
+            col_offset: 0,
         };
         let scene = w.scene();
         for &(x, y) in &[(5u32, 5u32), (0, 0), (10, 10), (3, 7)] {
