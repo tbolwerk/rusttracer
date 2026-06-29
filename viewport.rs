@@ -537,27 +537,57 @@ impl Viewport {
             self.world.compute_bounds();
         }
 
-        // GPU path: trace the whole frame on the GPU every loop. It's fast enough
-        // to skip the CPU coarse-while-moving / refine-when-still ladder entirely;
-        // a shallower depth while moving keeps it snappy on heavy scenes. If a
-        // frame loses the device (a scene too heavy for the GPU watchdog), drop the
-        // dead renderer and fall through to the CPU path for the rest of the session.
+        // GPU path. Like the CPU viewport, trade resolution for responsiveness:
+        // while the camera moves, trace a coarse 1/`move_block`-res frame at shallow
+        // depth and bilinear-upscale it (the GPU traces every pixel, so a full-res
+        // heavy scene per frame is too slow to move through); once still, trace the
+        // full-resolution frame at full depth. `move_block` auto-tunes to the frame
+        // budget, exactly as `render_moving` does for the CPU. On device loss, drop
+        // the renderer and fall through to the CPU path for the rest of the session.
         #[cfg(feature = "gpu")]
-        if let Some(renderer) = &self.gpu {
-            let depth = if active { MOVE_DEPTH } else { self.still_depth };
-            let cam = self.cam.to_cam(depth as u32);
-            match renderer.render_caught(&self.world, &cam) {
-                Some(pixels) => {
-                    self.display.copy_from_slice(&pixels);
-                    return self
-                        .window
-                        .update_with_buffer(&self.display, DISP_W, DISP_H)
-                        .is_ok();
+        if self.gpu.is_some() {
+            if active {
+                let scale = self.move_block.max(1) as u32;
+                let cam = self.cam.to_cam_scaled(MOVE_DEPTH as u32, scale);
+                let (sw, sh) = (cam.hsize as usize, cam.vsize as usize);
+                let start = Instant::now();
+                let frame = self.gpu.as_ref().unwrap().render_caught(&self.world, &cam);
+                match frame {
+                    Some(small) => {
+                        upscale_bilinear(&small, sw, sh, &mut self.display, DISP_W, DISP_H);
+                        self.shown_key = None;
+                        // Hysteresis on the (power-of-two) block size, as render_moving.
+                        let ms = start.elapsed().as_secs_f64() * 1000.0;
+                        if ms > FRAME_BUDGET_MS * 1.2 {
+                            self.move_block = (self.move_block * 2).min(MAX_BLOCK);
+                        } else if ms < FRAME_BUDGET_MS * 0.5 {
+                            self.move_block = (self.move_block / 2).max(1);
+                        }
+                        return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
+                    }
+                    None => {
+                        eprintln!("gpu: device lost; switching the viewer to CPU rendering");
+                        self.gpu = None;
+                    }
                 }
-                None => {
-                    eprintln!("gpu: device lost; switching the viewer to CPU rendering");
-                    self.gpu = None;
+            } else if self.shown_key != Some(key) {
+                // Held still: trace the full-resolution frame once.
+                let cam = self.cam.to_cam(self.still_depth as u32);
+                let frame = self.gpu.as_ref().unwrap().render_caught(&self.world, &cam);
+                match frame {
+                    Some(pixels) => {
+                        self.display.copy_from_slice(&pixels);
+                        self.shown_key = Some(key);
+                        return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
+                    }
+                    None => {
+                        eprintln!("gpu: device lost; switching the viewer to CPU rendering");
+                        self.gpu = None;
+                    }
                 }
+            } else {
+                // Still and already shown: reuse the display.
+                return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
             }
         }
 

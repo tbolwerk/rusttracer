@@ -24,7 +24,91 @@ use raycore::render::{Cam, Job, WfNode, WF_MAX_LIGHTS, WF_STACK};
 use raycore::tuples::Color;
 use raycore::worlds::World;
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::mem::size_of;
 use wgpu::util::DeviceExt;
+
+// All per-frame GPU resources, allocated once and reused: the large per-pixel state
+// buffers (job stack, scratch, accumulator, framebuffer), the scene buffers, AND the
+// five bind groups. Re-allocating these every frame — ~200 MB of state VRAM plus a
+// fixed ~60 ms of buffer/bind-group creation — is what made the GPU fly loop slower
+// than the CPU. Per frame the host only re-uploads the (tiny) scene data via
+// `write_buffer` into these same buffers, so the bind groups stay valid. Rebuilt
+// only when the frame grows or the scene's buffer sizes change.
+struct StateCache {
+    cap: usize,        // per-pixel buffers are sized for this many pixels
+    obj_bytes: usize,  // exact scene-buffer sizes (the shader reads .len() off these,
+    light_bytes: usize, // so they must match the world exactly, not just fit)
+    child_bytes: usize,
+    objects: wgpu::Buffer,
+    lights: wgpu::Buffer,
+    child: wgpu::Buffer,
+    cam: wgpu::Buffer,
+    jobs: wgpu::Buffer,
+    sp: wgpu::Buffer,
+    nodes: wgpu::Buffer,
+    intensity: wgpu::Buffer,
+    accum: wgpu::Buffer,
+    out: wgpu::Buffer,
+    // Written by wf_trace (binding 7) but never read back — the bounce loop runs a
+    // fixed number of rounds in one submission rather than polling it each round.
+    any: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    bg_init: wgpu::BindGroup,
+    bg_trace: wgpu::BindGroup,
+    bg_shadow: wgpu::BindGroup,
+    bg_shade: wgpu::BindGroup,
+    bg_present: wgpu::BindGroup,
+}
+
+impl StateCache {
+    fn matches(&self, pixels: usize, obj_bytes: usize, light_bytes: usize, child_bytes: usize) -> bool {
+        self.cap >= pixels
+            && self.obj_bytes == obj_bytes
+            && self.light_bytes == light_bytes
+            && self.child_bytes == child_bytes
+    }
+
+    fn new(r: &WavefrontRenderer, pixels: usize, obj_bytes: usize, light_bytes: usize, child_bytes: usize) -> Self {
+        let device = &r.device;
+        let cap = pixels;
+        let st = wgpu::BufferUsages::STORAGE;
+        let store = |size: u64, extra: wgpu::BufferUsages| {
+            device.create_buffer(&wgpu::BufferDescriptor { label: None, size: size.max(4), usage: st | extra, mapped_at_creation: false })
+        };
+        let dst = wgpu::BufferUsages::COPY_DST;
+        let objects = store(obj_bytes as u64, dst);
+        let lights = store(light_bytes as u64, dst);
+        let child = store(child_bytes as u64, dst);
+        let cam = store(size_of::<Cam>() as u64, dst);
+        let jobs = store((cap * WF_STACK * size_of::<Job>()) as u64, wgpu::BufferUsages::empty());
+        let sp = store((cap * 4) as u64, wgpu::BufferUsages::empty());
+        let nodes = store((cap * size_of::<WfNode>()) as u64, wgpu::BufferUsages::empty());
+        let intensity = store((cap * WF_MAX_LIGHTS * 4) as u64, wgpu::BufferUsages::empty());
+        let accum = store((cap * size_of::<Color>()) as u64, wgpu::BufferUsages::empty());
+        let out = store((cap * 4) as u64, wgpu::BufferUsages::COPY_SRC);
+        let any = store(4, wgpu::BufferUsages::empty());
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None, size: (cap * 4) as u64, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
+        });
+        let bg = |layout, bufs: &[&wgpu::Buffer]| {
+            let entries: Vec<wgpu::BindGroupEntry> = bufs.iter().enumerate()
+                .map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() })
+                .collect();
+            device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout, entries: &entries })
+        };
+        let bg_init = bg(&r.bgl_init, &[&cam, &jobs, &sp, &accum]);
+        let bg_trace = bg(&r.bgl_trace, &[&objects, &lights, &child, &cam, &jobs, &sp, &nodes, &any]);
+        let bg_shadow = bg(&r.bgl_shadow, &[&objects, &lights, &child, &cam, &nodes, &intensity]);
+        let bg_shade = bg(&r.bgl_shade, &[&objects, &lights, &cam, &nodes, &intensity, &jobs, &sp, &accum]);
+        let bg_present = bg(&r.bgl_present, &[&cam, &accum, &out]);
+        StateCache {
+            cap, obj_bytes, light_bytes, child_bytes,
+            objects, lights, child, cam, jobs, sp, nodes, intensity, accum, out, any, readback,
+            bg_init, bg_trace, bg_shadow, bg_shade, bg_present,
+        }
+    }
+}
 
 // The SPIR-V produced by `cargo gpu build --shader-crate gpu/shader --output-dir
 // gpu/spv` (build.rs does this automatically under --features gpu). Embedded at
@@ -98,6 +182,8 @@ pub struct WavefrontRenderer {
     bgl_shade: wgpu::BindGroupLayout,
     p_present: wgpu::ComputePipeline,
     bgl_present: wgpu::BindGroupLayout,
+    // Reused per-pixel buffers (allocated once, grown on demand). See StateCache.
+    cache: RefCell<Option<StateCache>>,
 }
 
 impl WavefrontRenderer {
@@ -156,6 +242,7 @@ impl WavefrontRenderer {
             bgl_shade,
             p_present,
             bgl_present,
+            cache: RefCell::new(None),
         })
     }
 
@@ -163,7 +250,6 @@ impl WavefrontRenderer {
     // pixels (0x00RRGGBB), row-major. Reuses the device/pipelines; only the
     // per-frame buffers are rebuilt. The world must have had `compute_bounds()` run.
     pub fn render(&self, world: &World, cam: &Cam) -> Vec<u32> {
-        use core::mem::size_of;
         let device = &self.device;
         let queue = &self.queue;
         let w = cam.hsize;
@@ -175,98 +261,61 @@ impl WavefrontRenderer {
         if child_u32.is_empty() {
             child_u32.push(0);
         }
-        let st = wgpu::BufferUsages::STORAGE;
-        let init_buf = |label, data: &[u8]| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: data, usage: st })
-        };
-        let scratch = |label, size: u64, extra: wgpu::BufferUsages| {
-            device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage: st | extra, mapped_at_creation: false })
-        };
+        let obj_bytes = std::mem::size_of_val(&world.objects[..]);
+        let light_bytes = std::mem::size_of_val(&world.lights[..]);
+        let child_bytes = std::mem::size_of_val(&child_u32[..]);
 
-        let objects_b = init_buf("objects", as_bytes(&world.objects));
-        let lights_b = init_buf("lights", as_bytes(&world.lights));
-        let child_b = init_buf("child", as_bytes(&child_u32));
-        let cam_b = init_buf("cam", as_bytes(&[*cam]));
-
-        // Per-pixel path state.
-        let jobs_b = scratch("jobs", (pixels * WF_STACK * size_of::<Job>()) as u64, wgpu::BufferUsages::empty());
-        let sp_b = scratch("sp", (pixels * 4) as u64, wgpu::BufferUsages::empty());
-        let nodes_b = scratch("nodes", (pixels * size_of::<WfNode>()) as u64, wgpu::BufferUsages::empty());
-        let intensity_b = scratch("intensity", (pixels * WF_MAX_LIGHTS * 4) as u64, wgpu::BufferUsages::empty());
-        let accum_b = scratch("accum", (pixels * size_of::<Color>()) as u64, wgpu::BufferUsages::empty());
-        let out_b = scratch("out", out_bytes, wgpu::BufferUsages::COPY_SRC);
-        let any_b = scratch("any_active", 4, wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST);
-        let any_rb = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("any_rb"), size: 4, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
-        });
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"), size: out_bytes, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
-        });
-
-        fn make_bg(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, bufs: &[&wgpu::Buffer]) -> wgpu::BindGroup {
-            let entries: Vec<wgpu::BindGroupEntry> = bufs
-                .iter()
-                .enumerate()
-                .map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() })
-                .collect();
-            device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout, entries: &entries })
+        // (Re)build the cached buffers + bind groups only when the frame grew or the
+        // scene's buffer sizes changed; otherwise reuse them and just re-upload the
+        // (small) scene data into the same buffers, keeping every bind group valid.
+        if !self.cache.borrow().as_ref().map_or(false, |sc| sc.matches(pixels, obj_bytes, light_bytes, child_bytes)) {
+            *self.cache.borrow_mut() = Some(StateCache::new(self, pixels, obj_bytes, light_bytes, child_bytes));
         }
-        let bg_init = make_bg(device, &self.bgl_init, &[&cam_b, &jobs_b, &sp_b, &accum_b]);
-        let bg_trace = make_bg(device, &self.bgl_trace, &[&objects_b, &lights_b, &child_b, &cam_b, &jobs_b, &sp_b, &nodes_b, &any_b]);
-        let bg_shadow = make_bg(device, &self.bgl_shadow, &[&objects_b, &lights_b, &child_b, &cam_b, &nodes_b, &intensity_b]);
-        let bg_shade = make_bg(device, &self.bgl_shade, &[&objects_b, &lights_b, &cam_b, &nodes_b, &intensity_b, &jobs_b, &sp_b, &accum_b]);
-        let bg_present = make_bg(device, &self.bgl_present, &[&cam_b, &accum_b, &out_b]);
+        let cache = self.cache.borrow();
+        let sc = cache.as_ref().unwrap();
+
+        queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
+        queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
+        queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
+        queue.write_buffer(&sc.cam, 0, as_bytes(&[*cam]));
 
         let gx = w.div_ceil(8);
         let gy = h.div_ceil(8);
-        let dispatch = |encoder: &mut wgpu::CommandEncoder, pipeline: &wgpu::ComputePipeline, group: &wgpu::BindGroup| {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.dispatch_workgroups(gx, gy, 1);
-        };
 
-        // Seed primary rays.
+        // The branching reflect/refract tree drains in at most this many pop rounds
+        // (a binary tree of depth `max_depth`). Bounded so we run them in a SINGLE
+        // submission with no per-round CPU sync — the per-round readback stall was the
+        // other half of why fly was slow. Most pixels finish far sooner and their
+        // empty rounds cost almost nothing (each thread reads `sp` and returns).
+        let rounds = (1u32 << (cam.max_depth + 1)).min(WF_MAX_ROUNDS).max(2);
+
+        // Seed primary rays, run all bounce rounds, pack — ALL in ONE compute pass
+        // (wgpu inserts the storage barriers between dispatches), one submission, one
+        // sync. A pass per dispatch added a large fixed per-frame cost.
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        dispatch(&mut enc, &self.p_init, &bg_init);
-        queue.submit(Some(enc.finish()));
-
-        // Bounce loop: trace, stop once no pixel has a job, else shadow + shade.
-        for _ in 0..WF_MAX_ROUNDS {
-            let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            enc.clear_buffer(&any_b, 0, None);
-            dispatch(&mut enc, &self.p_trace, &bg_trace);
-            enc.copy_buffer_to_buffer(&any_b, 0, &any_rb, 0, 4);
-            queue.submit(Some(enc.finish()));
-
-            let slice = any_rb.slice(..);
-            slice.map_async(wgpu::MapMode::Read, |_| {});
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let any = u32::from_ne_bytes(slice.get_mapped_range()[0..4].try_into().unwrap());
-            any_rb.unmap();
-            if any == 0 {
-                break;
+        {
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+            let mut go = |pipeline: &wgpu::ComputePipeline, group: &wgpu::BindGroup| {
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, group, &[]);
+                pass.dispatch_workgroups(gx, gy, 1);
+            };
+            go(&self.p_init, &sc.bg_init);
+            for _ in 0..rounds {
+                go(&self.p_trace, &sc.bg_trace);
+                go(&self.p_shadow, &sc.bg_shadow);
+                go(&self.p_shade, &sc.bg_shade);
             }
-
-            let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            dispatch(&mut enc, &self.p_shadow, &bg_shadow);
-            dispatch(&mut enc, &self.p_shade, &bg_shade);
-            queue.submit(Some(enc.finish()));
+            go(&self.p_present, &sc.bg_present);
         }
-
-        // Pack the accumulator and read it back.
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        dispatch(&mut enc, &self.p_present, &bg_present);
-        enc.copy_buffer_to_buffer(&out_b, 0, &readback, 0, out_bytes);
+        enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
         queue.submit(Some(enc.finish()));
 
-        let slice = readback.slice(..);
+        let slice = sc.readback.slice(0..out_bytes);
         slice.map_async(wgpu::MapMode::Read, |_| {});
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        let data = slice.get_mapped_range();
-        let out: Vec<u32> = data.chunks_exact(4).map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect();
-        drop(data);
-        readback.unmap();
+        let out: Vec<u32> = slice.get_mapped_range().chunks_exact(4).map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect();
+        sc.readback.unmap();
         out
     }
 

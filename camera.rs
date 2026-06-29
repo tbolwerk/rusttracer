@@ -147,6 +147,24 @@ impl<const HSIZE: usize, const VSIZE: usize> Camera<HSIZE, VSIZE> {
             row_offset: 0,
         }
     }
+    // Like `to_cam`, but for a `1/scale`-resolution render of the SAME view (fewer,
+    // larger pixels — `pixel_size` grows so the frustum is unchanged). The GPU fly
+    // loop uses this to trace a coarse frame while the camera moves (then bilinear-
+    // upscales it), exactly as the CPU viewport drops resolution to stay responsive.
+    #[cfg(feature = "gpu")]
+    pub fn to_cam_scaled(&self, max_depth: u32, scale: u32) -> raycore::render::Cam {
+        let scale = scale.max(1);
+        raycore::render::Cam {
+            inverse_transform: self.inverse_transform.unwrap_or(Matrix::identity()),
+            pixel_size: self.pixel_size * scale as Number,
+            half_width: self.half_width,
+            half_height: self.half_height,
+            hsize: (HSIZE as u32).div_ceil(scale),
+            vsize: (VSIZE as u32).div_ceil(scale),
+            max_depth,
+            row_offset: 0,
+        }
+    }
     pub fn render(&self, world: World) -> Canvas<VSIZE, HSIZE> {
         let mut image: Canvas<VSIZE, HSIZE> = Canvas::new(255);
         for y in 0..VSIZE {
