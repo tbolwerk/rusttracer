@@ -150,6 +150,29 @@ fn main() -> Result<(), ()> {
         teapot();
         return Ok(());
     }
+    // TEMP: time a coarse marbles frame on the GPU (occupancy experiment).
+    #[cfg(feature = "gpu")]
+    if std::env::args().any(|a| a == "gtime") {
+        let world = build_marbles_world();
+        let mut camera: Camera<{ viewport::DISP_W }, { viewport::DISP_H }> = Camera::new(PI / 3.0);
+        camera.set_transform(view_transform(
+            Point { x: 0.0, y: 4.0, z: -11.0 },
+            Point { x: 0.0, y: 0.3, z: 0.0 },
+            Vector { x: 0.0, y: 1.0, z: 0.0 },
+        ));
+        let r = gpu::WavefrontRenderer::new().expect("no gpu");
+        let coarse = camera.to_cam_scaled(viewport::MOVE_DEPTH as u32, 8);
+        let full = camera.to_cam(viewport::STILL_DEPTH as u32);
+        let _ = r.render(&world, &coarse, true);
+        for (label, cam) in [("coarse 240x135 d1", &coarse), ("full 1920x1080 d4", &full)] {
+            let _ = r.render(&world, cam, false);
+            let n = 10;
+            let t = Instant::now();
+            for _ in 0..n { let _ = r.render(&world, cam, false); }
+            println!("gtime[MAX_XS={}]: {label}: {:.1} ms", raycore::intersections::MAX_XS, t.elapsed().as_secs_f64()*1000.0/n as f64);
+        }
+        return Ok(());
+    }
     // `cargo run --release -- csg` renders just the chapter 16 CSG widget.
     if std::env::args().any(|a| a == "csg") {
         chapter16();

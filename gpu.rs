@@ -21,6 +21,7 @@
 
 use pollster::block_on;
 use raycore::render::{Cam, Job, WfNode, WF_MAX_LIGHTS, WF_STACK};
+use raycore::shapes::HasMaterial;
 use raycore::tuples::Color;
 use raycore::worlds::World;
 use std::borrow::Cow;
@@ -164,11 +165,28 @@ fn select_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
     candidates.into_iter().next()
 }
 
+// True when any world object carries a material that both reflects AND refracts,
+// causing the per-pixel job stack to branch (two children per bounce). When no
+// such material exists the tree is linear (at most one child per bounce) and
+// `max_depth + 2` rounds are enough to drain it instead of `2^(max_depth+1)`.
+fn has_mixed_material(world: &World) -> bool {
+    world.objects.iter().any(|o| {
+        let m = o.get_material();
+        m.reflective > 0.0 && m.transparency > 0.0
+    })
+}
+
 // Bounce-round count for a frame: the branching reflect/refract tree drains in at
-// most this many pop rounds (a binary tree of depth `max_depth`), bounded so the
-// rounds run in one submission with no per-round CPU sync.
-fn rounds(cam: &Cam) -> u32 {
-    (1u32 << (cam.max_depth + 1)).min(WF_MAX_ROUNDS).max(2)
+// most this many pop rounds, bounded so all rounds run in one submission with no
+// per-round CPU sync. When no material branches (both reflect + refract) the tree
+// is linear and `max_depth + 2` rounds suffice instead of `2^(max_depth+1)` — a
+// 5x reduction for pure-reflective scenes (capitol, hexagon, CSG, teapot, etc.).
+fn rounds(world: &World, cam: &Cam) -> u32 {
+    if has_mixed_material(world) {
+        (1u32 << (cam.max_depth + 1)).min(WF_MAX_ROUNDS).max(2)
+    } else {
+        (cam.max_depth + 2).min(WF_MAX_ROUNDS).max(2)
+    }
 }
 
 // Upload `cam` into the cached cam buffer with the given tile offsets applied.
@@ -280,7 +298,7 @@ impl WavefrontRenderer {
     // Render one frame of `world` through `cam`, returning hsize*vsize packed
     // pixels (0x00RRGGBB), row-major. Reuses the device/pipelines; only the
     // per-frame buffers are rebuilt. The world must have had `compute_bounds()` run.
-    pub fn render(&self, world: &World, cam: &Cam) -> Vec<u32> {
+    pub fn render(&self, world: &World, cam: &Cam, scene_dirty: bool) -> Vec<u32> {
         let device = &self.device;
         let queue = &self.queue;
         let w = cam.hsize;
@@ -288,6 +306,26 @@ impl WavefrontRenderer {
         let pixels = (w as usize) * (h as usize);
         let out_bytes = (pixels * 4) as u64;
 
+        let child_u32 = self.ensure_scene(world, pixels, scene_dirty);
+        let _ = &child_u32; // kept alive; uploaded inside ensure_scene
+        let cache = self.cache.borrow();
+        let sc = cache.as_ref().unwrap();
+        write_buffer_cam(queue, sc, cam, cam.row_offset, cam.col_offset);
+
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        self.encode_frame(sc, &mut enc, w.div_ceil(8), h.div_ceil(8), rounds(world, cam));
+        enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
+        queue.submit(Some(enc.finish()));
+        read_back(device, sc, out_bytes)
+    }
+
+    // Ensure the cached buffers fit this frame and the scene data is on the GPU.
+    // The scene buffers (objects/lights/child) are only re-uploaded when the cache
+    // was just rebuilt or the caller says the scene changed (`scene_dirty`) — so a
+    // static scene isn't re-sent every fly frame. Returns the child_indices the
+    // (re)upload used (also keeps it alive for the lifetime of the call).
+    fn ensure_scene(&self, world: &World, pixels: usize, scene_dirty: bool) -> Vec<u32> {
+        let queue = &self.queue;
         let mut child_u32: Vec<u32> = world.child_indices.iter().map(|&i| i as u32).collect();
         if child_u32.is_empty() {
             child_u32.push(0);
@@ -296,25 +334,18 @@ impl WavefrontRenderer {
         let light_bytes = std::mem::size_of_val(&world.lights[..]);
         let child_bytes = std::mem::size_of_val(&child_u32[..]);
 
-        // (Re)build the cached buffers + bind groups only when the frame grew or the
-        // scene's buffer sizes changed; otherwise reuse them and just re-upload the
-        // (small) scene data into the same buffers, keeping every bind group valid.
-        if !self.cache.borrow().as_ref().map_or(false, |sc| sc.matches(pixels, obj_bytes, light_bytes, child_bytes)) {
+        let rebuilt = !self.cache.borrow().as_ref().map_or(false, |sc| sc.matches(pixels, obj_bytes, light_bytes, child_bytes));
+        if rebuilt {
             *self.cache.borrow_mut() = Some(StateCache::new(self, pixels, obj_bytes, light_bytes, child_bytes));
         }
-        let cache = self.cache.borrow();
-        let sc = cache.as_ref().unwrap();
-
-        queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
-        queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
-        queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
-        write_buffer_cam(queue, sc, cam, cam.row_offset, cam.col_offset);
-
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        self.encode_frame(sc, &mut enc, w.div_ceil(8), h.div_ceil(8), rounds(cam));
-        enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
-        queue.submit(Some(enc.finish()));
-        read_back(device, sc, out_bytes)
+        if rebuilt || scene_dirty {
+            let cache = self.cache.borrow();
+            let sc = cache.as_ref().unwrap();
+            queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
+            queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
+            queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
+        }
+        child_u32
     }
 
     // Record one full wavefront frame into `enc`: seed primary rays, run the bounce
@@ -344,54 +375,56 @@ impl WavefrontRenderer {
     /// heavy still frame refine from the center outward across several UI frames, like
     /// the CPU viewport's interlaced refinement. `cam` is the full-frame camera; each
     /// tile only changes its row/col offset and dispatch size.
-    pub fn render_tiles(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>) -> Vec<u32> {
+    pub fn render_tiles(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>, scene_dirty: bool) -> Vec<u32> {
         let device = &self.device;
         let queue = &self.queue;
         let pixels = (cam.hsize as usize) * (cam.vsize as usize);
         let out_bytes = (pixels * 4) as u64;
 
-        let mut child_u32: Vec<u32> = world.child_indices.iter().map(|&i| i as u32).collect();
-        if child_u32.is_empty() {
-            child_u32.push(0);
-        }
-        let obj_bytes = std::mem::size_of_val(&world.objects[..]);
-        let light_bytes = std::mem::size_of_val(&world.lights[..]);
-        let child_bytes = std::mem::size_of_val(&child_u32[..]);
-        if !self.cache.borrow().as_ref().map_or(false, |sc| sc.matches(pixels, obj_bytes, light_bytes, child_bytes)) {
-            *self.cache.borrow_mut() = Some(StateCache::new(self, pixels, obj_bytes, light_bytes, child_bytes));
-        }
+        let _child = self.ensure_scene(world, pixels, scene_dirty);
         let cache = self.cache.borrow();
         let sc = cache.as_ref().unwrap();
 
-        queue.write_buffer(&sc.objects, 0, as_bytes(&world.objects));
-        queue.write_buffer(&sc.lights, 0, as_bytes(&world.lights));
-        queue.write_buffer(&sc.child, 0, as_bytes(&child_u32));
         if let Some(coarse) = seed {
             queue.write_buffer(&sc.out, 0, as_bytes(coarse));
         }
 
-        let r = rounds(cam);
-        // One submit per tile (each with its own offsets via a fresh cam upload, which
-        // the queue orders before that tile's dispatch); no per-tile readback, so the
-        // single sync happens only at the final readback below.
-        for &(x0, y0, tw, th) in tiles {
-            write_buffer_cam(queue, sc, cam, y0, x0);
-            let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            self.encode_frame(sc, &mut enc, tw.div_ceil(8), th.div_ceil(8), r);
-            queue.submit(Some(enc.finish()));
-        }
+        let r = rounds(world, cam);
+        // Stage all per-tile cam structs in one COPY_SRC buffer so we can update
+        // the live cam from inside the encoder via copy_buffer_to_buffer, keeping
+        // all tiles in a single submit instead of one submit per tile. This cuts
+        // the per-tile encoder/submit CPU overhead (~135 for a 1920x1080 frame with
+        // 128x128 tiles) to a constant, and lets the driver pipeline the whole
+        // batch without round-tripping through the CPU between tiles.
+        let cam_size = size_of::<Cam>() as u64;
+        let tile_cams: Vec<Cam> = tiles.iter().map(|&(x0, y0, _, _)| {
+            let mut c = *cam;
+            c.row_offset = y0;
+            c.col_offset = x0;
+            c
+        }).collect();
+        let cam_staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: as_bytes(&tile_cams),
+            usage: wgpu::BufferUsages::COPY_SRC,
+        });
 
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        for (i, &(_, _, tw, th)) in tiles.iter().enumerate() {
+            // Update the cam to this tile's offsets before its dispatches.
+            enc.copy_buffer_to_buffer(&cam_staging, (i as u64) * cam_size, &sc.cam, 0, cam_size);
+            self.encode_frame(sc, &mut enc, tw.div_ceil(8), th.div_ceil(8), r);
+        }
         enc.copy_buffer_to_buffer(&sc.out, 0, &sc.readback, 0, out_bytes);
         queue.submit(Some(enc.finish()));
         read_back(device, sc, out_bytes)
     }
 
     /// `render_tiles` wrapped to catch a device-loss panic (-> None), as `render_caught`.
-    pub fn render_tiles_caught(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>) -> Option<Vec<u32>> {
+    pub fn render_tiles_caught(&self, world: &World, cam: &Cam, tiles: &[(u32, u32, u32, u32)], seed: Option<&[u32]>, scene_dirty: bool) -> Option<Vec<u32>> {
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render_tiles(world, cam, tiles, seed)));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render_tiles(world, cam, tiles, seed, scene_dirty)));
         std::panic::set_hook(prev_hook);
         r.ok()
     }
@@ -399,10 +432,10 @@ impl WavefrontRenderer {
     /// Like `render`, but catches a "device lost" panic and returns `None`, so a
     /// caller can fall back to the CPU. The device is dead after a loss, so the
     /// one-shot path rebuilds it next call and the fly viewer drops to CPU.
-    pub fn render_caught(&self, world: &World, cam: &Cam) -> Option<Vec<u32>> {
+    pub fn render_caught(&self, world: &World, cam: &Cam, scene_dirty: bool) -> Option<Vec<u32>> {
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render(world, cam)));
+        let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render(world, cam, scene_dirty)));
         std::panic::set_hook(prev_hook);
         rendered.ok()
     }
@@ -462,7 +495,7 @@ const WF_MAX_ROUNDS: u32 = 64;
 /// and returns the framebuffer. `None` if there's no usable GPU adapter or the
 /// device was lost mid-render (caller falls back to CPU). The next call rebuilds.
 pub fn render_gpu(world: &World, cam: &Cam) -> Option<Vec<u32>> {
-    let pixels = WavefrontRenderer::new()?.render_caught(world, cam);
+    let pixels = WavefrontRenderer::new()?.render_caught(world, cam, true);
     if pixels.is_none() {
         eprintln!("gpu: lost the device mid-render; CPU fallback");
     }

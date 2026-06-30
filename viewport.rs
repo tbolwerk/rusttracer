@@ -33,10 +33,15 @@ pub const DISP_H: usize = 1080;
 // the slowest-scene fallback while moving); blocks are always powers of two so the
 // refinement's sample grids nest, letting each pixel be traced exactly once.
 const MAX_BLOCK: usize = 32;
-// GPU still refinement: full-res tile edge (pixels). The still frame is rendered as
-// these tiles in center-out order, a budgeted batch per frame.
+// GPU still refinement: full-res tile edge (pixels). The full-res phase is rendered
+// as these tiles in center-out order, a budgeted batch per frame.
 #[cfg(feature = "gpu")]
 const GPU_TILE: usize = 128;
+// The whole-frame resolution ladder refines down to this scale (1/4) before handing
+// off to the full-res center-out tiles; finer whole-frame levels would be too slow
+// to render in one go on heavy scenes.
+#[cfg(feature = "gpu")]
+const GPU_LADDER_FLOOR: usize = 4;
 pub const MOVE_DEPTH: usize = 1; // reflection depth while moving
 const FRAME_BUDGET_MS: f64 = 33.0; // ~30 fps target, while moving and per refine chunk
 pub const STILL_DEPTH: usize = 4; // full-frame reflection depth once stopped
@@ -88,30 +93,32 @@ fn forward(yaw: Number, pitch: Number) -> Vector {
 // Blending four source texels per channel turns the blocky nearest-neighbor
 // preview into a smooth one for the cost of a little blur, which reads far better
 // while moving than hard pixel edges.
-fn upscale_bilinear(src: &[u32], sw: usize, sh: usize, dst: &mut [u32], dw: usize, dh: usize) {
-    let lerp = |a: u32, b: u32, t: f64| -> u32 {
+pub(crate) fn upscale_bilinear(src: &[u32], sw: usize, sh: usize, dst: &mut [u32], dw: usize, dh: usize) {
+    let lerp = |a: u32, b: u32, t: f32| -> u32 {
         let chan = |shift: u32| {
-            let av = ((a >> shift) & 0xff) as f64;
-            let bv = ((b >> shift) & 0xff) as f64;
+            let av = ((a >> shift) & 0xff) as f32;
+            let bv = ((b >> shift) & 0xff) as f32;
             (av + (bv - av) * t).round() as u32
         };
         (chan(16) << 16) | (chan(8) << 8) | chan(0)
     };
-    for y in 0..dh {
-        let fy = (y as f64 + 0.5) * sh as f64 / dh as f64 - 0.5;
+    // Parallel over destination rows: at 1920x1080 this was ~65 ms single-threaded
+    // every moving frame, which alone capped the fly rate; rayon makes it a few ms.
+    dst.par_chunks_mut(dw).enumerate().for_each(|(y, row)| {
+        let fy = (y as f32 + 0.5) * sh as f32 / dh as f32 - 0.5;
         let y0 = fy.floor().max(0.0) as usize;
         let y1 = (y0 + 1).min(sh - 1);
-        let ty = (fy - y0 as f64).clamp(0.0, 1.0);
+        let ty = (fy - y0 as f32).clamp(0.0, 1.0);
         for x in 0..dw {
-            let fx = (x as f64 + 0.5) * sw as f64 / dw as f64 - 0.5;
+            let fx = (x as f32 + 0.5) * sw as f32 / dw as f32 - 0.5;
             let x0 = fx.floor().max(0.0) as usize;
             let x1 = (x0 + 1).min(sw - 1);
-            let tx = (fx - x0 as f64).clamp(0.0, 1.0);
+            let tx = (fx - x0 as f32).clamp(0.0, 1.0);
             let top = lerp(src[y0 * sw + x0], src[y0 * sw + x1], tx);
             let bot = lerp(src[y1 * sw + x0], src[y1 * sw + x1], tx);
-            dst[y * dw + x] = lerp(top, bot, ty);
+            row[x] = lerp(top, bot, ty);
         }
-    }
+    });
 }
 
 // Paint the block x block square whose top-left is (x, y) with one color, clipped
@@ -275,11 +282,20 @@ pub struct Viewport {
     // res once still. `None` (no adapter) transparently keeps the CPU path.
     #[cfg(feature = "gpu")]
     gpu: Option<crate::gpu::WavefrontRenderer>,
-    // GPU still-refinement state: the pose being sharpened, its center-out list of
-    // full-res tiles still to render, a cursor into it, and how many tiles to do per
-    // frame (auto-tuned to the frame budget).
+    // GPU still-refinement state. Refinement runs in two phases that visibly improve
+    // quality while held still, like the CPU: first a whole-frame resolution ladder
+    // (`gpu_scale` halves each frame, so the image sharpens in steps), then full-res
+    // center-out tiles for the final detail (`gpu_tiles` ordered center-out, a cursor
+    // into it, and a per-frame batch size auto-tuned to the budget).
     #[cfg(feature = "gpu")]
     gpu_refine_key: Option<FrameKey>,
+    // Set when the scene's geometry changed (scene switch / object drag) so the GPU
+    // re-uploads it; cleared after the upload, so a static scene isn't re-sent each
+    // fly frame.
+    #[cfg(feature = "gpu")]
+    gpu_scene_dirty: bool,
+    #[cfg(feature = "gpu")]
+    gpu_scale: usize,
     #[cfg(feature = "gpu")]
     gpu_tiles: Vec<(u32, u32, u32, u32)>,
     #[cfg(feature = "gpu")]
@@ -330,6 +346,10 @@ impl Viewport {
             gpu: crate::gpu::WavefrontRenderer::new(),
             #[cfg(feature = "gpu")]
             gpu_refine_key: None,
+            #[cfg(feature = "gpu")]
+            gpu_scene_dirty: true,
+            #[cfg(feature = "gpu")]
+            gpu_scale: 1,
             #[cfg(feature = "gpu")]
             gpu_tiles: Vec::new(),
             #[cfg(feature = "gpu")]
@@ -412,6 +432,10 @@ impl Viewport {
             self.pos = self.scenes[i].pos;
             self.yaw = self.scenes[i].yaw;
             self.pitch = self.scenes[i].pitch;
+            #[cfg(feature = "gpu")]
+            {
+                self.gpu_scene_dirty = true; // new geometry: re-upload to the GPU
+            }
             self.window
                 .set_title(&title(self.scenes[i].name, self.still_depth));
         }
@@ -598,13 +622,17 @@ impl Viewport {
         // On device loss, drop the renderer and fall through to the CPU path.
         #[cfg(feature = "gpu")]
         if self.gpu.is_some() {
+            // Upload the scene to the GPU only when it changed; otherwise reuse what's
+            // already there (a static scene isn't re-sent every fly frame).
+            let dirty = scene_changed || self.gpu_scene_dirty;
+            self.gpu_scene_dirty = false;
             if active {
                 self.gpu_refine_key = None; // stopping will restart the ladder
                 let scale = self.move_block.max(1) as u32;
                 let cam = self.cam.to_cam_scaled(MOVE_DEPTH as u32, scale);
                 let (sw, sh) = (cam.hsize as usize, cam.vsize as usize);
                 let start = Instant::now();
-                match self.gpu.as_ref().unwrap().render_caught(&self.world, &cam) {
+                match self.gpu.as_ref().unwrap().render_caught(&self.world, &cam, dirty) {
                     Some(small) => {
                         upscale_bilinear(&small, sw, sh, &mut self.display, DISP_W, DISP_H);
                         self.shown_key = None;
@@ -627,48 +655,72 @@ impl Viewport {
                 self.gpu_refine_key = None;
                 return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
             } else if self.shown_key != Some(key) {
-                // Still: sharpen to full res by rendering center-out full-res tiles
-                // over the coarse frame, a budgeted batch per UI frame, until the whole
-                // frame is done — then cache it for instant revisit.
+                // Still: refine in visible quality steps, like the CPU. Phase 1 is a
+                // whole-frame resolution ladder (gpu_scale halves each frame), so the
+                // image sharpens in steps; phase 2 (scale below the floor) renders
+                // full-res center-out tiles over the last coarse frame, then caches.
                 if self.gpu_refine_key != Some(key) {
                     self.gpu_refine_key = Some(key);
-                    self.gpu_tiles = center_out_tiles(DISP_W, DISP_H, GPU_TILE);
+                    self.gpu_scale = self.move_block.max(GPU_LADDER_FLOOR);
+                    self.gpu_tiles.clear();
                     self.gpu_tile_cursor = 0;
                 }
-                let start = self.gpu_tile_cursor;
-                let end = (start + self.gpu_tiles_per_frame.max(1)).min(self.gpu_tiles.len());
-                let batch: Vec<(u32, u32, u32, u32)> = self.gpu_tiles[start..end].to_vec();
-                let cam = self.cam.to_cam(self.still_depth as u32);
-                // Seed the framebuffer with the coarse frame on the first batch only.
-                let seed = if start == 0 { Some(self.display.clone()) } else { None };
-                let t0 = Instant::now();
-                let rendered = self.gpu.as_ref().unwrap().render_tiles_caught(
-                    &self.world,
-                    &cam,
-                    &batch,
-                    seed.as_deref(),
-                );
-                match rendered {
-                    Some(full) => {
-                        self.display.copy_from_slice(&full);
-                        self.gpu_tile_cursor = end;
-                        // Auto-tune batch size toward the frame budget.
-                        let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                        if ms > FRAME_BUDGET_MS * 1.2 {
-                            self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame / 2).max(1);
-                        } else if ms < FRAME_BUDGET_MS * 0.5 {
-                            self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame * 2).min(self.gpu_tiles.len().max(1));
+                if self.gpu_scale >= GPU_LADDER_FLOOR {
+                    // Whole-frame ladder step at the current scale.
+                    let cam = self.cam.to_cam_scaled(self.still_depth as u32, self.gpu_scale as u32);
+                    let (sw, sh) = (cam.hsize as usize, cam.vsize as usize);
+                    match self.gpu.as_ref().unwrap().render_caught(&self.world, &cam, dirty) {
+                        Some(frame) => {
+                            upscale_bilinear(&frame, sw, sh, &mut self.display, DISP_W, DISP_H);
+                            self.gpu_scale /= 2; // sharper next frame
+                            return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
                         }
-                        if self.gpu_tile_cursor >= self.gpu_tiles.len() {
-                            self.cache_frame(key); // full res done: cache for revisit
-                            self.shown_key = Some(key);
-                            self.gpu_refine_key = None;
+                        None => {
+                            eprintln!("gpu: device lost; switching the viewer to CPU rendering");
+                            self.gpu = None;
                         }
-                        return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
                     }
-                    None => {
-                        eprintln!("gpu: device lost; switching the viewer to CPU rendering");
-                        self.gpu = None;
+                } else {
+                    // Full-res center-out tile phase, building on the ladder's frame.
+                    if self.gpu_tiles.is_empty() {
+                        self.gpu_tiles = center_out_tiles(DISP_W, DISP_H, GPU_TILE);
+                        self.gpu_tile_cursor = 0;
+                    }
+                    let start = self.gpu_tile_cursor;
+                    let end = (start + self.gpu_tiles_per_frame.max(1)).min(self.gpu_tiles.len());
+                    let batch: Vec<(u32, u32, u32, u32)> = self.gpu_tiles[start..end].to_vec();
+                    let cam = self.cam.to_cam(self.still_depth as u32);
+                    // Seed the framebuffer with the ladder's coarse frame on the first batch.
+                    let seed = if start == 0 { Some(self.display.clone()) } else { None };
+                    let t0 = Instant::now();
+                    let rendered = self.gpu.as_ref().unwrap().render_tiles_caught(
+                        &self.world,
+                        &cam,
+                        &batch,
+                        seed.as_deref(),
+                        dirty,
+                    );
+                    match rendered {
+                        Some(full) => {
+                            self.display.copy_from_slice(&full);
+                            self.gpu_tile_cursor = end;
+                            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                            if ms > FRAME_BUDGET_MS * 1.2 {
+                                self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame / 2).max(1);
+                            } else if ms < FRAME_BUDGET_MS * 0.5 {
+                                self.gpu_tiles_per_frame = (self.gpu_tiles_per_frame * 2).min(self.gpu_tiles.len().max(1));
+                            }
+                            if self.gpu_tile_cursor >= self.gpu_tiles.len() {
+                                self.cache_frame(key); // full res done: cache for revisit
+                                self.shown_key = Some(key);
+                                self.gpu_refine_key = None;
+                            }
+                            return self.window.update_with_buffer(&self.display, DISP_W, DISP_H).is_ok();
+                        }
+                        None => {
+                            eprintln!("gpu: device lost; switching the viewer to CPU rendering");
+                            self.gpu = None;
+                        }
                     }
                 }
             } else {
